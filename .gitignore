@@ -1,0 +1,14 @@
+# Data -- too large for git, provided by supervisors
+data/
+CBOE_Data_2011_2022/
+
+# Python
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
