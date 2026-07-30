@@ -54,7 +54,7 @@ existing output and reports on it, it never modifies anything.
 ## Notes
 
 - `CBOE_Data_2011_2022` is spelled with this exact capitalisation on disk.
-  Windows won't care if it doesn't match, but Mac and Linux will. I know that professor Westerholm uses a Mac.
+  Windows won't care if it doesn't match, but Mac and Linux will. 
 - The CBOE dataset provided runs from 2011-01-03 through 2022-05-16, not
   through 2022 in full. This was confirmed by both the ingestion output and an
   independently hardcoded date in a classmate's separate IBES loading code.
