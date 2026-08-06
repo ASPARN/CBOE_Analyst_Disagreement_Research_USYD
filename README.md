@@ -28,7 +28,7 @@ src/
 
 This repo does not include the raw data. CBOE and IBES are both licensed,
 commercial datasets, and CBOE's raw zip archive alone is several GB which I discovered when I attempted my first upload.
-Both are available via the same supervisor access already in place with Professor Grant and Professor Westerholm or they can be sourced from CBOE Global Markets and Wharton Research Data Services respectively. For this project 
+The data sources used can be sourced from CBOE Global Markets and Wharton Research Data Services respectively. To run this project:
 
 1. Install dependencies:
    ```
@@ -54,7 +54,7 @@ existing output and reports on it, it never modifies anything.
 ## Notes
 
 - `CBOE_Data_2011_2022` is spelled with this exact capitalisation on disk.
-  Windows won't care if it doesn't match, but Mac and Linux will. I know that professor Westerholm uses a Mac.
+  Windows won't care if it doesn't match, but Mac and Linux will. 
 - The CBOE dataset provided runs from 2011-01-03 through 2022-05-16, not
   through 2022 in full. This was confirmed by both the ingestion output and an
   independently hardcoded date in a classmate's separate IBES loading code.
