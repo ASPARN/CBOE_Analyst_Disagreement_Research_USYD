@@ -21,7 +21,9 @@ from io import BytesIO
 from pathlib import Path
  
 import polars as pl
- 
+
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
 from paths import ZIP_DIR, EXTRACTED_DIR
  
 EXCEL_EXT = (".xlsx", ".xls", ".xlsm")

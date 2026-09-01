@@ -17,7 +17,9 @@ from io import BytesIO
 from pathlib import Path
  
 import polars as pl
- 
+
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
 from paths import PROJECT_ROOT, ZIP_DIR, DATA_DIR, PARQUET_DIR, IBES_DIR
  
 SPOT_CHECK_DATE = (2011, 1, 3)

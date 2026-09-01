@@ -26,6 +26,8 @@ from pathlib import Path
 
 import polars as pl
 
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
 from paths import IBES_DIR, PARQUET_DIR
 
 MEANEST_FLOOR = 0.001 #Numerical safety floor for row exlcusion only. Prevents literal division blowup, not a data quality cut.

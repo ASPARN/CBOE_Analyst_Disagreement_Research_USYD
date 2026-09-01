@@ -29,6 +29,8 @@ from pathlib import Path
 
 import polars as pl
 
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
 from paths import IBES_DIR
 
 EXCEL_ROW_CAP = 1_048_576  # Excel's hard row limit (2^20) -- a file landing

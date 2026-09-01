@@ -27,9 +27,11 @@ import re
 import time
 from collections import defaultdict
 from pathlib import Path
- 
+
 import polars as pl
- 
+
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
 from paths import EXTRACTED_DIR, PARQUET_DIR
  
 FILENAME_DATE_RE = re.compile(r"(\d{4})-\d{2}-\d{2}")
