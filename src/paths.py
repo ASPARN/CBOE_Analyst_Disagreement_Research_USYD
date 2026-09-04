@@ -33,3 +33,4 @@ CRSP_DIR = DATA_DIR / "crsp"
 
 SRC_DIR = PROJECT_ROOT / "src"
 NOTEBOOKS_DIR = PROJECT_ROOT / "notebooks"
+RESULTS_DIR = PROJECT_ROOT / "results"

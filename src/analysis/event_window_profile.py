@@ -83,7 +83,12 @@ def _match_events_to_daily(
     differently, so they're guaranteed to agree on which events/days
     actually matched."""
     events_path = events_path or (IBES_DIR / "dispersion_events.parquet")
-    events = pl.read_parquet(events_path).select(["OFTIC", "ANNDATS_ACT"]).filter(
+    _ev_cols = ["OFTIC", "ANNDATS_ACT"]
+    # dispersion_scaled is the continuous regressor; carried through here so
+    # downstream regressions can use it instead of the binary near-event flag
+    if "dispersion_scaled" in pl.scan_parquet(events_path).collect_schema().names():
+        _ev_cols.append("dispersion_scaled")
+    events = pl.read_parquet(events_path).select(_ev_cols).filter(
         pl.col("OFTIC").is_not_null()
     )
 
@@ -121,8 +126,10 @@ def _match_events_to_daily(
     composition_cols = [
         "retail_vol_total", "retail_vol_lt_100", "retail_vol_100_199",
         "retail_vol_gt_199", "retail_vol_call", "retail_vol_put",
+        "retail_vol_open", "retail_vol_close",
         "procust_vol_total", "procust_vol_lt_100", "procust_vol_100_199",
         "procust_vol_gt_199", "procust_vol_call", "procust_vol_put",
+        "procust_vol_open", "procust_vol_close",
     ]
     # moneyness columns are present only if build_moneyness.py has been run
     mny_cols = [c for c in daily.columns if "_otm_" in c or "_itm_" in c or "_atm_" in c]
@@ -231,6 +238,7 @@ def build_diff_in_diff_panel(
     window: int = 30,
     seed: int = 42,
     events_path: Path = None,
+    verbose: bool = True,
 ) -> pl.DataFrame:
     """Builds a firm-event level panel for a difference-in-differences test.
     For each event, computes EACH participant group's outcome share
@@ -246,12 +254,16 @@ def build_diff_in_diff_panel(
 
     rows = []
     for group in ["retail", "procust"]:
+        agg = [
+            pl.col(f"{group}_vol_{outcome}").sum().alias("outcome_vol"),
+            pl.col(f"{group}_vol_total").sum().alias("total_vol"),
+            pl.len().alias("n_days"),
+        ]
+        if "dispersion_scaled" in matched.columns:
+            agg.append(pl.col("dispersion_scaled").first().alias("dispersion_scaled"))
         per_event = (
             matched.group_by(["resolved_ticker", "ANNDATS_ACT", "is_near_event"])
-            .agg(
-                pl.col(f"{group}_vol_{outcome}").sum().alias("outcome_vol"),
-                pl.col(f"{group}_vol_total").sum().alias("total_vol"),
-            )
+            .agg(agg)
             .filter(pl.col("total_vol") > 0)  # can't compute a share with zero volume
             .with_columns(
                 (pl.col("outcome_vol") / pl.col("total_vol")).alias("share"),
@@ -260,11 +272,19 @@ def build_diff_in_diff_panel(
         )
         rows.append(per_event)
 
-    panel = pl.concat(rows).select(
-        "resolved_ticker", "ANNDATS_ACT", "participant_group", "is_near_event", "share", "total_vol"
+    panel = pl.concat(rows)
+    keep = ["resolved_ticker", "ANNDATS_ACT", "participant_group", "is_near_event",
+            "share", "total_vol", "n_days"]
+    if "dispersion_scaled" in panel.columns:
+        keep.append("dispersion_scaled")
+    panel = panel.select(keep).with_columns(
+        # average daily volume, so near-event (6 days) and baseline (~55 days)
+        # periods are directly comparable rather than differing by day count
+        (pl.col("total_vol") / pl.col("n_days")).alias("avg_daily_vol")
     )
-    print(f"Matched {n_matched:,} of {n_total:,} events to CBOE trading data")
-    print(f"Panel has {panel.height:,} rows (up to 2 periods x 2 groups per event)")
+    if verbose:
+        print(f"Matched {n_matched:,} of {n_total:,} events to CBOE trading data")
+        print(f"Panel has {panel.height:,} rows (up to 2 periods x 2 groups per event)")
     return panel
 
 
@@ -385,3 +405,348 @@ def compare_top_n_tickers(outcome: str = "lt_100", near_event_days: range = rang
 if __name__ == "__main__":
     profile = build_event_profile()
     print(profile)
+
+
+def run_dispersion_regression(
+    panel: pl.DataFrame,
+    spec: str = "triple",
+    outcome_var: str = "share",
+    cluster_by: str = "ticker",
+    standardize: bool = True,
+    controls: list[str] = None,
+    verbose: bool = True,
+):
+    """Replaces the binary near-event flag with the CONTINUOUS analyst
+    forecast dispersion measure -- closer to what the research questions
+    actually ask ("does higher dispersion predict different behaviour")
+    than "is this near an announcement".
+
+    spec:
+      "triple"      share ~ dispersion * treat * post, on the full panel.
+                    The dispersion:treat:post coefficient is the headline
+                    result: does retail's near-event SHIFT grow with
+                    dispersion, relative to professional customers?
+      "near_only"   share ~ dispersion * treat, restricted to near-event
+                    rows. Simpler to interpret: within earnings windows,
+                    does the retail/procust gap widen with dispersion?
+
+    outcome_var:
+      "share"       composition outcome (whatever the panel was built for)
+      "log_volume"  ln(average daily volume) -- for RQ1, which is about
+                    trading volume rather than contract composition
+
+    standardize: z-scores dispersion so coefficients read "per standard
+    deviation of dispersion" rather than per raw unit, which matters
+    because the raw measure is winsorised at 1.85-2.4 and a one-unit
+    change is therefore enormous relative to its actual spread.
+    """
+    import numpy as np
+    import statsmodels.formula.api as smf
+
+    if "dispersion_scaled" not in panel.columns:
+        raise ValueError(
+            "Panel has no dispersion_scaled column. Rebuild it with a version of "
+            "build_diff_in_diff_panel that carries dispersion through."
+        )
+
+    df = panel.to_pandas().dropna(subset=["dispersion_scaled"])
+    df["treat"] = (df["participant_group"] == "retail").astype(int)
+    df["post"] = df["is_near_event"].astype(int)
+
+    if outcome_var == "log_volume":
+        df = df[df["avg_daily_vol"] > 0].copy()
+        df["y"] = np.log(df["avg_daily_vol"])
+    elif outcome_var == "share":
+        df["y"] = df["share"]
+    else:
+        raise ValueError("outcome_var must be 'share' or 'log_volume'")
+
+    df["dispersion"] = df["dispersion_scaled"]
+    if standardize:
+        df["dispersion"] = (df["dispersion"] - df["dispersion"].mean()) / df["dispersion"].std()
+
+    if spec == "triple":
+        formula = "y ~ dispersion * treat * post"
+    elif spec == "near_only":
+        df = df[df["post"] == 1].copy()
+        formula = "y ~ dispersion * treat"
+    else:
+        raise ValueError("spec must be 'triple' or 'near_only'")
+
+    # Controls are added as full interaction terms, not just level shifts.
+    # Adding "log_mktcap" alone would only absorb size LEVELS; the question
+    # is whether the dispersion effect survives once size is allowed its own
+    # event response, so "log_mktcap * treat * post" is the meaningful test.
+    if controls:
+        missing = [c for c in controls if c not in df.columns]
+        if missing:
+            raise ValueError(f"Control column(s) not in panel: {missing}. Did you run add_market_cap()?")
+        before = len(df)
+        df = df.dropna(subset=controls)
+        if len(df) < before and verbose:
+            print(f"  Dropped {before - len(df):,} rows missing control values ({len(df):,} remain)")
+        for c in controls:
+            if standardize and df[c].std() > 0:
+                df[c] = (df[c] - df[c].mean()) / df[c].std()
+            formula += f" + {c} * treat" + (" * post" if spec == "triple" else "")
+
+    if cluster_by == "event":
+        groups = df["resolved_ticker"].astype(str) + "_" + df["ANNDATS_ACT"].astype(str)
+    elif cluster_by == "ticker":
+        groups = df["resolved_ticker"]
+    else:
+        raise ValueError("cluster_by must be 'event' or 'ticker'")
+
+    return smf.ols(formula, data=df).fit(cov_type="cluster", cov_kwds={"groups": groups})
+
+
+_CRSP_MKTCAP_CACHE = None
+
+
+def _crsp_mktcap_frame() -> pl.DataFrame:
+    """Loads and caches the CRSP market cap lookup. Cached because running a
+    robustness table across several outcomes calls add_market_cap once per
+    outcome, and re-reading the full CRSP parquet each time is wasteful."""
+    global _CRSP_MKTCAP_CACHE
+    if _CRSP_MKTCAP_CACHE is None:
+        from paths import CRSP_DIR
+        crsp_path = CRSP_DIR / "crsp_daily.parquet"
+        if not crsp_path.exists():
+            raise FileNotFoundError(f"CRSP parquet not found at {crsp_path}. Run ingest_crsp.py first.")
+        _CRSP_MKTCAP_CACHE = (
+            pl.scan_parquet(crsp_path)
+            .select(["Ticker", "DlyCalDt", "DlyCap"])
+            .filter(pl.col("DlyCap").is_not_null() & (pl.col("DlyCap") > 0))
+            .unique(subset=["Ticker", "DlyCalDt"])
+            .collect()
+            .sort(["Ticker", "DlyCalDt"])
+        )
+    return _CRSP_MKTCAP_CACHE
+
+
+def add_market_cap(panel: pl.DataFrame, max_lookback_days: int = 10, verbose: bool = True) -> pl.DataFrame:
+    """Joins CRSP market capitalisation onto a firm-event panel, as of each
+    event's announcement date, and adds log_mktcap.
+
+    Motivation: analyst dispersion is systematically LOWER for large,
+    heavily-covered firms, and ten mega-cap tickers are already known to
+    behave oppositely to the rest of the universe on position size. Any
+    apparent "dispersion effect" could therefore partly be a size effect in
+    disguise. Controlling for size properly is the way to tell them apart.
+
+    DlyCap is in thousands of dollars and is heavily right-skewed, so the
+    log is what enters the regression.
+
+    Announcements can fall on non-trading days (a company reporting after
+    Friday's close, say), so this takes the most recent CRSP observation
+    within max_lookback_days rather than requiring an exact date match.
+    """
+    crsp = _crsp_mktcap_frame()
+
+    # join_asof needs both sides sorted on the ordering key
+    panel_sorted = panel.sort(["resolved_ticker", "ANNDATS_ACT"])
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        out = panel_sorted.join_asof(
+            crsp,
+            left_on="ANNDATS_ACT",
+            right_on="DlyCalDt",
+            by_left="resolved_ticker",
+            by_right="Ticker",
+            strategy="backward",
+            tolerance=f"{max_lookback_days}d",
+        ).with_columns(pl.col("DlyCap").log().alias("log_mktcap"))
+
+    n_matched = out.filter(pl.col("log_mktcap").is_not_null()).height
+    if verbose:
+        print(f"Market cap matched for {n_matched:,} of {out.height:,} panel rows ({n_matched/out.height:.1%})")
+    return out
+
+
+def exclude_top_n_tickers(panel: pl.DataFrame, n: int = 10) -> pl.DataFrame:
+    """Drops the n highest-volume tickers from a panel. Those names are known
+    to behave oppositely to the rest of the universe and carry enough volume
+    to dominate aggregates, so re-running without them is a basic robustness
+    check rather than a cosmetic one."""
+    ticker_vol = (
+        panel.group_by("resolved_ticker")
+        .agg(pl.col("total_vol").sum().alias("v"))
+        .sort("v", descending=True)
+    )
+    top = ticker_vol.head(n)["resolved_ticker"].to_list()
+    print(f"Excluding top {n} tickers by volume: {sorted(top)}")
+    out = panel.filter(~pl.col("resolved_ticker").is_in(top))
+    print(f"  {panel.height:,} -> {out.height:,} panel rows")
+    return out
+
+
+def dispersion_robustness_table(
+    outcomes: list[str] = None,
+    outcome_var: str = "share",
+    cluster_by: str = "ticker",
+    near_event_days: range = range(-1, 5),
+) -> pl.DataFrame:
+    """Runs the dispersion regression with and without a market-cap control
+    across several outcomes, and reports the coefficients side by side.
+
+    The point of the comparison: analyst dispersion is systematically lower
+    for large firms, so an apparent dispersion effect can be firm size in
+    disguise. If dispersion:treat:post survives the log_mktcap * treat * post
+    control, the event effect is real; if it collapses while
+    log_mktcap:treat:post is significant, size was doing the work.
+
+    Reports three coefficients per outcome:
+      did_base    dispersion:treat:post with no size control
+      did_ctrl    dispersion:treat:post with the size control
+      cross_ctrl  dispersion:treat with the size control -- the CROSS-SECTIONAL
+                  relationship (does the retail/professional gap vary with
+                  dispersion at all), which is a separate question from the
+                  event response and may survive when the event effect does not
+    """
+    outcomes = outcomes or ["otm", "otm_put", "lt_100", "call", "open"]
+    rows = []
+
+    for oc in outcomes:
+        panel = build_diff_in_diff_panel(
+            outcome=oc, near_event_days=near_event_days, verbose=False
+        )
+        m_base = run_dispersion_regression(
+            panel, spec="triple", outcome_var=outcome_var, cluster_by=cluster_by
+        )
+        panel_mc = add_market_cap(panel, verbose=False)
+        m_ctrl = run_dispersion_regression(
+            panel_mc, spec="triple", outcome_var=outcome_var,
+            cluster_by=cluster_by, controls=["log_mktcap"], verbose=False
+        )
+        rows.append({
+            "outcome": oc,
+            "did_base": m_base.params["dispersion:treat:post"],
+            "p_base": m_base.pvalues["dispersion:treat:post"],
+            "did_ctrl": m_ctrl.params["dispersion:treat:post"],
+            "p_ctrl": m_ctrl.pvalues["dispersion:treat:post"],
+            "cross_ctrl": m_ctrl.params["dispersion:treat"],
+            "p_cross": m_ctrl.pvalues["dispersion:treat"],
+            "size_did": m_ctrl.params["log_mktcap:treat:post"],
+            "p_size": m_ctrl.pvalues["log_mktcap:treat:post"],
+        })
+
+    return pl.DataFrame(rows)
+
+
+def investigate_size_reversal(panel_mc: pl.DataFrame) -> dict:
+    """Characterises the near-event reversal in the firm-size interaction:
+    retail's volume advantage over professional customers SHRINKS with firm
+    size in ordinary conditions but GROWS with it around earnings.
+
+    Runs three checks, because a reversal in an interaction coefficient can
+    have three quite different causes:
+
+      1. SELECTION. The near-event window is ~6 trading days against ~55 for
+         baseline, so a firm-event needs volume in a much shorter window to
+         appear at all. If small, illiquid firms drop out of the near-event
+         sample disproportionately, the "reversal" is sample composition
+         rather than behaviour. Compares the size distribution of events
+         present in both periods against those present in baseline only.
+
+      2. SHAPE. Whether the size effect is a smooth gradient or a threshold,
+         via size-quartile dummies rather than a linear term.
+
+      3. WHO MOVES. A DiD-style coefficient says nothing about which group
+         changed. Reports each group's actual near-event volume lift within
+         each size quartile, so the mechanism is visible directly.
+
+    Requires a panel that has been through add_market_cap().
+    """
+    import numpy as np
+
+    if "log_mktcap" not in panel_mc.columns:
+        raise ValueError("Panel has no log_mktcap. Run add_market_cap() first.")
+
+    df = panel_mc.filter(
+        pl.col("log_mktcap").is_not_null() & (pl.col("avg_daily_vol") > 0)
+    ).with_columns(
+        pl.col("log_mktcap")
+        .qcut(4, labels=["S1_small", "S2", "S3", "S4_large"], allow_duplicates=True)
+        .alias("size_q"),
+        pl.col("avg_daily_vol").log().alias("log_vol"),
+    )
+
+    out = {}
+
+    # --- 1. selection ------------------------------------------------------
+    periods_per_event = (
+        df.group_by(["resolved_ticker", "ANNDATS_ACT", "participant_group"])
+        .agg(
+            pl.col("is_near_event").any().alias("has_near"),
+            (~pl.col("is_near_event")).any().alias("has_base"),
+            pl.col("log_mktcap").first().alias("log_mktcap"),
+        )
+    )
+    sel = (
+        periods_per_event.with_columns(
+            pl.when(pl.col("has_near") & pl.col("has_base")).then(pl.lit("both"))
+            .when(pl.col("has_base")).then(pl.lit("baseline_only"))
+            .otherwise(pl.lit("near_only"))
+            .alias("presence")
+        )
+        .group_by("presence")
+        .agg(
+            pl.col("log_mktcap").mean().alias("mean_log_mktcap"),
+            pl.len().alias("n"),
+        )
+        .sort("presence")
+    )
+    out["selection"] = sel
+
+    # --- 2. shape: size quartiles, retail vs procust, by period ------------
+    shape = (
+        df.group_by(["size_q", "participant_group", "is_near_event"])
+        .agg(pl.col("log_vol").mean().alias("mean_log_vol"), pl.len().alias("n"))
+        .sort(["size_q", "participant_group", "is_near_event"])
+    )
+    out["by_size_quartile"] = shape
+
+    # --- 3. who moves: near-event lift per group per size quartile ---------
+    lift = (
+        df.group_by(["size_q", "participant_group", "is_near_event"])
+        .agg(pl.col("log_vol").mean().alias("m"))
+        .pivot(values="m", index=["size_q", "participant_group"], on="is_near_event")
+        .rename({"true": "near", "false": "base"})
+        .with_columns((pl.col("near") - pl.col("base")).alias("near_event_lift"))
+        .sort(["size_q", "participant_group"])
+    )
+    out["near_event_lift"] = lift
+
+    return out
+
+
+def build_balanced_panel(panel: pl.DataFrame, verbose: bool = True) -> pl.DataFrame:
+    """Restricts a panel to firm-events where ALL FOUR cells exist: both
+    participant groups, in both the baseline and near-event periods.
+
+    Why this matters: a panel row is only created when that group traded in
+    that period. The near-event window is ~6 trading days against ~55 for
+    baseline, and professional customers trade sparsely in small stocks, so
+    procust rows drop out of the near-event window at a rate that falls
+    monotonically with firm size (54% in the smallest size quartile, 14% in
+    the largest). Estimates from the unbalanced panel are therefore partly
+    conditioned on "professionals happened to trade", which biases anything
+    that interacts with firm size.
+
+    The balanced panel removes that conditioning, at the cost of dropping
+    roughly 42% of observations -- disproportionately small firms. Neither
+    sample is the correct one; they describe slightly different universes,
+    and results are reported for both."""
+    complete = (
+        panel.filter(pl.col("avg_daily_vol") > 0)
+        .group_by(["resolved_ticker", "ANNDATS_ACT"])
+        .agg(pl.len().alias("n_cells"))
+        .filter(pl.col("n_cells") == 4)
+        .select(["resolved_ticker", "ANNDATS_ACT"])
+    )
+    out = panel.join(complete, on=["resolved_ticker", "ANNDATS_ACT"], how="inner")
+    if verbose:
+        print(f"Balanced panel: {out.height:,} rows (from {panel.height:,}, "
+              f"{out.height / panel.height:.1%} retained)")
+    return out
