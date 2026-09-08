@@ -11,8 +11,12 @@ is the granularity almost every downstream question actually needs --
 "how much activity was there in ticker X on date Y, by participant type" --
 rather than the much larger option-level detail.
 
-Volume uses the *_vol columns (total contracts traded), not *_qty (number
-of separate transactions) -- confirmed by direct inspection that these are
+Both *_vol (total contracts traded) and *_qty (number of separate
+transactions) are carried. Volume is the primary measure throughout, but
+their ratio -- contracts per transaction -- is the only available proxy for
+average order size, which matters for testing whether participants altered
+their order behaviour around the 2015 Professional-designation rule changes.
+Note the two are genuinely different measures -- confirmed by direct inspection that these are
 genuinely different measures, not duplicates, with _vol always the larger
 of the two.
 
@@ -57,6 +61,18 @@ PARTICIPANT_GROUPS = {
     "procust": "procust_",
 }
 
+# Only the two customer categories carry a contract-size breakdown
+# (lt_100 / 100_199 / gt_199). Firm, broker-dealer and market-maker flow is
+# reported without size tiers, and market-maker flow additionally has no
+# open/close split -- only buy/sell. Their totals are still worth carrying,
+# because interpreting a small-trade retail proxy requires knowing what
+# share of exchange volume can be size-classified at all.
+UNTIERED_GROUPS = {
+    "firm": "firm_",
+    "bd": "bd_",
+    "mm": "mm_",
+}
+
 
 def _tier_columns(cols: list[str], prefix: str) -> dict[str, list[str]]:
     """Given the full CBOE column list and a participant prefix (e.g.
@@ -94,6 +110,25 @@ def build_daily_retail_activity(
 
         row_exprs = []
         agg_exprs = []
+        for group_name, cboe_prefix in UNTIERED_GROUPS.items():
+            vol_cols = [c for c in cols if c.startswith(cboe_prefix) and c.endswith("_vol")]
+            if not vol_cols:
+                continue
+            row_exprs.append(
+                pl.sum_horizontal(vol_cols).cast(pl.Int64).alias(f"_row_{group_name}_total")
+            )
+            agg_exprs.append(
+                pl.col(f"_row_{group_name}_total").sum().alias(f"{group_name}_vol_total")
+            )
+            qty_cols = [c for c in cols if c.startswith(cboe_prefix) and c.endswith("_qty")]
+            if qty_cols:
+                row_exprs.append(
+                    pl.sum_horizontal(qty_cols).cast(pl.Int64).alias(f"_row_{group_name}_qty")
+                )
+                agg_exprs.append(
+                    pl.col(f"_row_{group_name}_qty").sum().alias(f"{group_name}_qty_total")
+                )
+
         for group_name, cboe_prefix in PARTICIPANT_GROUPS.items():
             tiers = _tier_columns(cols, cboe_prefix)
             row_exprs += [
@@ -104,6 +139,14 @@ def build_daily_retail_activity(
                 pl.sum_horizontal(tiers["100_199"]).cast(pl.Int64).alias(f"_row_{group_name}_100_199"),
                 pl.sum_horizontal(tiers["gt_199"]).cast(pl.Int64).alias(f"_row_{group_name}_gt_199"),
             ]
+            qty_all = [c for c in cols if c.startswith(cboe_prefix) and c.endswith("_qty")]
+            row_exprs.append(
+                pl.sum_horizontal(qty_all).cast(pl.Int64).alias(f"_row_{group_name}_qty")
+            )
+            agg_exprs.append(
+                pl.col(f"_row_{group_name}_qty").sum().alias(f"{group_name}_qty_total")
+            )
+
             agg_exprs += [
                 pl.col(f"_row_{group_name}_total").sum().alias(f"{group_name}_vol_total"),
                 pl.col(f"_row_{group_name}_open").sum().alias(f"{group_name}_vol_open"),

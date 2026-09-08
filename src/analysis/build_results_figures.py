@@ -45,6 +45,7 @@ from paths import RESULTS_DIR
 from analysis.event_window_profile import (
     build_diff_in_diff_panel, run_diff_in_diff, add_market_cap, build_balanced_panel,
 )
+from analysis.build_results_tables import PRIMARY_SAMPLE_START
 
 # colourblind-safe; blue for retail, orange for professional customers
 C_RETAIL = "#1a4f8a"
@@ -73,13 +74,15 @@ def _style(ax):
     ax.set_axisbelow(True)
 
 
-def fig1_did_coefficients(outcomes: list[str] = None, out_dir: Path = None):
+def fig1_did_coefficients(
+    outcomes: list[str] = None, out_dir: Path = None, date_from: str = None,
+):
     import matplotlib.pyplot as plt
 
     outcomes = outcomes or OUTCOMES
     rows = []
     for oc in outcomes:
-        full = build_diff_in_diff_panel(outcome=oc, verbose=False)
+        full = build_diff_in_diff_panel(outcome=oc, verbose=False, date_from=date_from)
         bal = build_balanced_panel(full, verbose=False)
         for label, panel in [("Full panel", full), ("Balanced panel", bal)]:
             m = run_diff_in_diff(panel, cluster_by="ticker")
@@ -129,11 +132,16 @@ def fig1_did_coefficients(outcomes: list[str] = None, out_dir: Path = None):
     return df
 
 
-def fig2_dispersion_quartiles(outcome: str = "otm", out_dir: Path = None):
+def fig2_dispersion_quartiles(
+    outcome: str = "otm", out_dir: Path = None, date_from: str = None,
+):
     import matplotlib.pyplot as plt
     import statsmodels.formula.api as smf
 
-    panel = add_market_cap(build_diff_in_diff_panel(outcome=outcome, verbose=False), verbose=False)
+    panel = add_market_cap(
+        build_diff_in_diff_panel(outcome=outcome, verbose=False, date_from=date_from),
+        verbose=False,
+    )
 
     results = {}
     for dep in ["share", "log_volume"]:
@@ -200,7 +208,9 @@ def fig2_dispersion_quartiles(outcome: str = "otm", out_dir: Path = None):
     return results
 
 
-def fig3_levels(outcomes: list[str] = None, out_dir: Path = None):
+def fig3_levels(
+    outcomes: list[str] = None, out_dir: Path = None, date_from: str = None,
+):
     import matplotlib.pyplot as plt
 
     outcomes = outcomes or ["otm", "otm_put", "lt_100", "open"]
@@ -210,7 +220,8 @@ def fig3_levels(outcomes: list[str] = None, out_dir: Path = None):
 
     for ax, oc in zip(axes, outcomes):
         panel = build_balanced_panel(
-            build_diff_in_diff_panel(outcome=oc, verbose=False), verbose=False
+            build_diff_in_diff_panel(outcome=oc, verbose=False, date_from=date_from),
+            verbose=False,
         )
         lv = (
             panel.group_by(["participant_group", "is_near_event"])
@@ -245,14 +256,84 @@ def fig3_levels(outcomes: list[str] = None, out_dir: Path = None):
     print(f"  wrote {path.name}")
 
 
-def build_all_figures(out_dir: Path = None):
-    out_dir = out_dir or (RESULTS_DIR / "figures")
-    print("Building figures...")
-    fig1_did_coefficients(out_dir=out_dir)
-    fig2_dispersion_quartiles(out_dir=out_dir)
-    fig3_levels(out_dir=out_dir)
-    print(f"\nAll figures written to {out_dir}")
+def fig4_coefficients_by_year(
+    outcomes: list[str] = None, out_dir: Path = None, cluster_by: str = "ticker"
+):
+    """Difference-in-differences coefficient by calendar year, with 95%
+    confidence intervals.
 
+    Motivation: the pooled estimates average across eleven years, and the
+    era comparison showed several outcomes are absent before roughly 2019
+    and large afterwards. A pooled coefficient that averages a null and a
+    large effect describes neither. Plotting by year shows whether the
+    change was a sharp break or a gradual drift -- a distinction the
+    three-era split cannot resolve.
+    """
+    import matplotlib.pyplot as plt
+    from analysis.event_window_profile import (
+        build_diff_in_diff_panel, run_diff_in_diff, yearly_eras,
+    )
+
+    outcomes = outcomes or ["otm", "lt_100", "open"]
+    eras = yearly_eras()
+
+    fig, axes = plt.subplots(len(outcomes), 1, figsize=(8, 2.6 * len(outcomes)), sharex=True)
+    if len(outcomes) == 1:
+        axes = [axes]
+
+    for ax, oc in zip(axes, outcomes):
+        years, coefs, los, his = [], [], [], []
+        for name, (d0, d1) in eras.items():
+            panel = build_diff_in_diff_panel(outcome=oc, verbose=False, date_from=d0, date_to=d1)
+            if panel.height < 100:
+                continue
+            m = run_diff_in_diff(panel, cluster_by=cluster_by)
+            c, se = m.params["treat:post"], m.bse["treat:post"]
+            years.append(int(name))
+            coefs.append(c)
+            los.append(c - 1.96 * se)
+            his.append(c + 1.96 * se)
+
+        years = np.array(years)
+        coefs = np.array(coefs)
+        err = np.vstack([coefs - np.array(los), np.array(his) - coefs])
+        ax.errorbar(years, coefs, yerr=err, fmt="o-", color=C_RETAIL, markersize=5,
+                    capsize=3, elinewidth=1.3, linewidth=1.4, zorder=3)
+        ax.axhline(0, color="black", linewidth=0.9, linestyle="--", alpha=0.6, zorder=2)
+        ax.set_ylabel(PRETTY.get(oc, oc), fontsize=10)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.grid(axis="y", color=GRID, linewidth=0.6)
+        ax.set_axisbelow(True)
+
+    axes[-1].set_xlabel("Year", fontsize=10)
+    axes[-1].set_xticks(sorted(int(y) for y in eras))
+    axes[-1].tick_params(axis="x", rotation=45)
+    fig.suptitle("Difference-in-differences estimate by year\n"
+                 "(retail vs. professional; 95% confidence intervals)",
+                 fontsize=11.5, y=1.0)
+    fig.tight_layout()
+
+    out_dir = out_dir or (RESULTS_DIR / "figures")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "fig4_coefficients_by_year.png"
+    fig.savefig(path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  wrote {path.name}")
+
+
+def build_all_figures(out_dir: Path = None, date_from: str = PRIMARY_SAMPLE_START):
+    """date_from defaults to the primary sample start, matching
+    build_all_tables. fig4 is deliberately exempt -- its whole purpose is to
+    show behaviour across all twelve years, including the pre-2016 period
+    that motivated the restriction."""
+    out_dir = out_dir or (RESULTS_DIR / "figures")
+    print(f"Building figures (sample: {date_from or '2011'} onward)...")
+    fig1_did_coefficients(out_dir=out_dir, date_from=date_from)
+    fig2_dispersion_quartiles(out_dir=out_dir, date_from=date_from)
+    fig3_levels(out_dir=out_dir, date_from=date_from)
+    fig4_coefficients_by_year(out_dir=out_dir)
+    print(f"\nAll figures written to {out_dir}")
 
 if __name__ == "__main__":
     build_all_figures()

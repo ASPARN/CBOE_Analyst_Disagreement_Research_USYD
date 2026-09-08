@@ -75,6 +75,8 @@ def _match_events_to_daily(
     window: int = 30,
     seed: int = 42,
     events_path: Path = None,
+    date_from: str = None,
+    date_to: str = None,
 ) -> tuple[pl.DataFrame, int, int]:
     """Shared core: resolves tickers, anchors each event to its own trading-
     day calendar, and pulls every composition column (not just total volume)
@@ -86,11 +88,32 @@ def _match_events_to_daily(
     _ev_cols = ["OFTIC", "ANNDATS_ACT"]
     # dispersion_scaled is the continuous regressor; carried through here so
     # downstream regressions can use it instead of the binary near-event flag
-    if "dispersion_scaled" in pl.scan_parquet(events_path).collect_schema().names():
+    _avail = pl.scan_parquet(events_path).collect_schema().names()
+    if "dispersion_scaled" in _avail:
         _ev_cols.append("dispersion_scaled")
+    # prior earnings volatility -- the second uncertainty measure in RQ1
+    if "earnings_volatility" in _avail:
+        _ev_cols.append("earnings_volatility")
     events = pl.read_parquet(events_path).select(_ev_cols).filter(
         pl.col("OFTIC").is_not_null()
     )
+
+    # optional era restriction, for comparing against studies covering a
+    # narrower period than this sample. Bryzgalova, Pavlova & Sikorskaya
+    # (2023) cover Nov 2019 - Jun 2021; this sample runs 2011 - May 2022,
+    # so their entire window is roughly 15% of these data.
+    if date_from is not None:
+        events = events.filter(pl.col("ANNDATS_ACT") >= pl.lit(date_from).str.to_date())
+    if date_to is not None:
+        events = events.filter(pl.col("ANNDATS_ACT") <= pl.lit(date_to).str.to_date())
+
+    # an era window can legitimately contain no events (e.g. a year outside
+    # the CBOE sample). Exit cleanly rather than letting an empty frame reach
+    # the joins, where the null-typed key column raises a schema error.
+    if events.height == 0:
+        empty = pl.DataFrame(schema={"resolved_ticker": pl.Utf8, "ANNDATS_ACT": pl.Date,
+                                     "rel_day": pl.Int64})
+        return empty, 0, 0
 
     if n_sample is not None and events.height > n_sample:
         random.seed(seed)
@@ -160,12 +183,20 @@ def build_event_profile(
     window: int = 30,
     seed: int = 42,
     events_path: Path = None,
+    date_from: str = None,
+    date_to: str = None,
 ) -> pl.DataFrame:
     """Vectorized: no per-event Python loop, so this scales cleanly from a
     thousand-event sample up to the full firm-event panel. n_sample=None
     (the default) uses every event; pass a number for a quick exploratory
     subset instead."""
-    matched, n_matched, n_total = _match_events_to_daily(n_sample, window, seed, events_path)
+    matched, n_matched, n_total = _match_events_to_daily(
+        n_sample, window, seed, events_path, date_from, date_to
+    )
+    if matched.height == 0:
+        print("No events in this window; returning empty profile.")
+        return pl.DataFrame(schema={"rel_day": pl.Int64, "mean_retail_vol": pl.Float64,
+                                    "n_events": pl.UInt32})
 
     profile = (
         matched.group_by("rel_day")
@@ -239,6 +270,8 @@ def build_diff_in_diff_panel(
     seed: int = 42,
     events_path: Path = None,
     verbose: bool = True,
+    date_from: str = None,
+    date_to: str = None,
 ) -> pl.DataFrame:
     """Builds a firm-event level panel for a difference-in-differences test.
     For each event, computes EACH participant group's outcome share
@@ -246,7 +279,19 @@ def build_diff_in_diff_panel(
     two 'periods' per group, per event -- ready for an OLS regression with
     a group x period interaction term. outcome is one of: 'lt_100',
     '100_199', 'gt_199', 'call', 'put'."""
-    matched, n_matched, n_total = _match_events_to_daily(n_sample, window, seed, events_path)
+    matched, n_matched, n_total = _match_events_to_daily(
+        n_sample, window, seed, events_path, date_from, date_to
+    )
+
+    if matched.height == 0:
+        if verbose:
+            print("No events in this window; returning empty panel.")
+        return pl.DataFrame(schema={
+            "resolved_ticker": pl.Utf8, "ANNDATS_ACT": pl.Date,
+            "participant_group": pl.Utf8, "is_near_event": pl.Boolean,
+            "share": pl.Float64, "total_vol": pl.Int64, "n_days": pl.UInt32,
+            "avg_daily_vol": pl.Float64,
+        })
 
     matched = matched.with_columns(
         pl.col("rel_day").is_in(set(near_event_days)).alias("is_near_event")
@@ -261,6 +306,8 @@ def build_diff_in_diff_panel(
         ]
         if "dispersion_scaled" in matched.columns:
             agg.append(pl.col("dispersion_scaled").first().alias("dispersion_scaled"))
+        if "earnings_volatility" in matched.columns:
+            agg.append(pl.col("earnings_volatility").first().alias("earnings_volatility"))
         per_event = (
             matched.group_by(["resolved_ticker", "ANNDATS_ACT", "is_near_event"])
             .agg(agg)
@@ -277,6 +324,8 @@ def build_diff_in_diff_panel(
             "share", "total_vol", "n_days"]
     if "dispersion_scaled" in panel.columns:
         keep.append("dispersion_scaled")
+    if "earnings_volatility" in panel.columns:
+        keep.append("earnings_volatility")
     panel = panel.select(keep).with_columns(
         # average daily volume, so near-event (6 days) and baseline (~55 days)
         # periods are directly comparable rather than differing by day count
@@ -415,6 +464,7 @@ def run_dispersion_regression(
     standardize: bool = True,
     controls: list[str] = None,
     verbose: bool = True,
+    uncertainty_var: str = "dispersion_scaled",
 ):
     """Replaces the binary near-event flag with the CONTINUOUS analyst
     forecast dispersion measure -- closer to what the research questions
@@ -443,13 +493,13 @@ def run_dispersion_regression(
     import numpy as np
     import statsmodels.formula.api as smf
 
-    if "dispersion_scaled" not in panel.columns:
+    if uncertainty_var not in panel.columns:
         raise ValueError(
-            "Panel has no dispersion_scaled column. Rebuild it with a version of "
-            "build_diff_in_diff_panel that carries dispersion through."
+            f"Panel has no {uncertainty_var} column. Rebuild dispersion_events.parquet "
+            f"and the panel with versions that carry it through."
         )
 
-    df = panel.to_pandas().dropna(subset=["dispersion_scaled"])
+    df = panel.to_pandas().dropna(subset=[uncertainty_var])
     df["treat"] = (df["participant_group"] == "retail").astype(int)
     df["post"] = df["is_near_event"].astype(int)
 
@@ -461,7 +511,9 @@ def run_dispersion_regression(
     else:
         raise ValueError("outcome_var must be 'share' or 'log_volume'")
 
-    df["dispersion"] = df["dispersion_scaled"]
+    # named "dispersion" in the formula regardless of which measure is used,
+    # so coefficient names stay stable across specifications
+    df["dispersion"] = df[uncertainty_var]
     if standardize:
         df["dispersion"] = (df["dispersion"] - df["dispersion"].mean()) / df["dispersion"].std()
 
@@ -750,3 +802,178 @@ def build_balanced_panel(panel: pl.DataFrame, verbose: bool = True) -> pl.DataFr
         print(f"Balanced panel: {out.height:,} rows (from {panel.height:,}, "
               f"{out.height / panel.height:.1%} retained)")
     return out
+
+
+# Bryzgalova, Pavlova & Sikorskaya (2023) characterise retail options trading
+# between November 2019 and June 2021. This sample runs 2011 - May 2022, so
+# their entire window is a minority of these data and sits squarely inside
+# the retail trading boom. Splitting on it tests whether findings that differ
+# from theirs are driven by measurement or simply by period.
+ERAS = {
+    "pre_boom": ("2011-01-01", "2019-10-31"),
+    "bpz_window": ("2019-11-01", "2021-06-30"),
+    "post_boom": ("2021-07-01", "2022-05-16"),
+}
+
+
+def compare_eras_profile(window: int = 30, eras: dict = None) -> pl.DataFrame:
+    """Runs the relative-day volume profile separately for each era.
+
+    The motivating question: this sample shows no two-week pre-announcement
+    buildup in retail volume, while Bryzgalova et al. report one. If the
+    buildup appears inside their Nov 2019 - Jun 2021 window and not outside
+    it, the discrepancy is period rather than method -- and the pattern
+    documented in the literature is era-specific rather than structural.
+
+    Returns one row per (era, rel_day) with mean retail volume normalised by
+    that era's own baseline, so eras with very different absolute volumes
+    remain comparable.
+    """
+    eras = eras or ERAS
+    frames = []
+    for name, (d0, d1) in eras.items():
+        prof = build_event_profile(window=window, date_from=d0, date_to=d1)
+        # normalise by the era's own far-from-event baseline (|rel_day| > 10)
+        baseline = (
+            prof.filter(pl.col("rel_day").abs() > 10)["mean_retail_vol"].mean()
+        )
+        frames.append(
+            prof.with_columns(
+                pl.lit(name).alias("era"),
+                (pl.col("mean_retail_vol") / baseline).alias("vol_vs_baseline"),
+            )
+        )
+    return pl.concat(frames).select(
+        ["era", "rel_day", "mean_retail_vol", "vol_vs_baseline", "n_events"]
+    )
+
+
+def compare_eras_did(
+    outcomes: list[str] = None, eras: dict = None, cluster_by: str = "ticker"
+) -> pl.DataFrame:
+    """Re-runs the binary difference-in-differences separately per era, so
+    findings can be checked against the period a comparison study covers."""
+    outcomes = outcomes or ["otm", "otm_put", "lt_100", "call", "open"]
+    eras = eras or ERAS
+    rows = []
+    for name, (d0, d1) in eras.items():
+        for oc in outcomes:
+            panel = build_diff_in_diff_panel(
+                outcome=oc, verbose=False, date_from=d0, date_to=d1
+            )
+            if panel.height < 100:
+                print(f"  skipping {name}/{oc}: only {panel.height} panel rows")
+                continue
+            m = run_diff_in_diff(panel, cluster_by=cluster_by)
+            rows.append({
+                "era": name,
+                "outcome": oc,
+                "coef": m.params["treat:post"],
+                "p_value": m.pvalues["treat:post"],
+                "n_obs": int(m.nobs),
+            })
+    return pl.DataFrame(rows)
+
+
+def yearly_eras(start: int = 2011, end: int = 2022, end_date: str = "2022-05-16") -> dict:
+    """Builds an era dict with one entry per calendar year, for use with
+    compare_eras_did and compare_eras_profile.
+
+    Three coarse era bins can show that something changed but not whether it
+    was a sharp break or a gradual drift, and that distinction matters for
+    interpretation -- a break around a specific event (zero-commission
+    trading going industry-wide in late 2019) implies a different mechanism
+    from a steady trend. The final year is truncated at end_date since the
+    CBOE sample stops mid-May 2022."""
+    eras = {}
+    for y in range(start, end + 1):
+        first = f"{y}-01-01"
+        last = end_date if y == end else f"{y}-12-31"
+        eras[str(y)] = (first, last)
+    return eras
+
+
+def summarise_eras_profile(window: int = 30, eras: dict = None) -> pl.DataFrame:
+    """Condenses the relative-day volume profile to a few statistics per era,
+    so many eras can be compared at once without reading a wide table.
+
+    pre_window_mean covers days -10 to -3, the region where a two-week
+    pre-announcement buildup would appear if there were one; day0_ratio and
+    day1_ratio capture the announcement spike itself. All are expressed
+    relative to that era's own far-from-event baseline (|rel_day| > 10)."""
+    eras = eras or ERAS
+    rows = []
+    for name, (d0, d1) in eras.items():
+        prof = build_event_profile(window=window, date_from=d0, date_to=d1)
+        baseline = prof.filter(pl.col("rel_day").abs() > 10)["mean_retail_vol"].mean()
+        if not baseline:
+            continue
+        norm = prof.with_columns((pl.col("mean_retail_vol") / baseline).alias("r"))
+
+        def _at(lo, hi):
+            sub = norm.filter(pl.col("rel_day").is_between(lo, hi))["r"]
+            return float(sub.mean()) if sub.len() else None
+
+        rows.append({
+            "era": name,
+            "pre_window_mean": _at(-10, -3),
+            "day_minus1": _at(-1, -1),
+            "day0_ratio": _at(0, 0),
+            "day1_ratio": _at(1, 1),
+            "post_window_mean": _at(2, 5),
+            "n_events_day0": int(norm.filter(pl.col("rel_day") == 0)["n_events"][0]),
+        })
+    return pl.DataFrame(rows)
+
+
+def decompose_break_by_year(
+    outcome: str = "otm", eras: dict = None, window: int = 30
+) -> pl.DataFrame:
+    """Decomposes a year-by-year difference-in-differences series into its
+    four underlying levels, so a change in the coefficient can be attributed
+    to the group that actually moved.
+
+    Motivation: the OTM coefficient reverses sign between 2015 and 2016, but
+    a DiD coefficient is a difference of differences -- it cannot say whether
+    retail changed, professional customers changed, or the event response of
+    one of them changed. This returns, per year and participant group, the
+    mean outcome share in the baseline and near-event periods, plus the
+    within-group event shift and each group's mean daily volume.
+
+    Volume is included because a compositional explanation (who is being
+    classified as a customer) and a behavioural one (how customers trade)
+    have different signatures: a compositional shift should show up in
+    relative volumes and baseline levels, a behavioural one mainly in the
+    event shift."""
+    eras = eras or yearly_eras()
+    rows = []
+    for name, (d0, d1) in eras.items():
+        panel = build_diff_in_diff_panel(
+            outcome=outcome, verbose=False, window=window, date_from=d0, date_to=d1
+        )
+        if panel.height < 100:
+            continue
+        agg = (
+            panel.group_by(["participant_group", "is_near_event"])
+            .agg(
+                pl.col("share").mean().alias("mean_share"),
+                pl.col("avg_daily_vol").mean().alias("mean_daily_vol"),
+                pl.len().alias("n"),
+            )
+        )
+        for grp in ["retail", "procust"]:
+            base = agg.filter((pl.col("participant_group") == grp) & (~pl.col("is_near_event")))
+            near = agg.filter((pl.col("participant_group") == grp) & (pl.col("is_near_event")))
+            if base.height == 0 or near.height == 0:
+                continue
+            rows.append({
+                "era": name,
+                "participant_group": grp,
+                "baseline_share": base["mean_share"][0],
+                "near_event_share": near["mean_share"][0],
+                "event_shift": near["mean_share"][0] - base["mean_share"][0],
+                "baseline_daily_vol": base["mean_daily_vol"][0],
+                "n_baseline": int(base["n"][0]),
+                "n_near": int(near["n"][0]),
+            })
+    return pl.DataFrame(rows).sort(["era", "participant_group"])

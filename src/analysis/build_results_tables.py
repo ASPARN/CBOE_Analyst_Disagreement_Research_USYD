@@ -44,8 +44,22 @@ from analysis.event_window_profile import (
 
 OUTCOMES = ["otm", "otm_put", "otm_call", "itm", "lt_100", "call", "open"]
 
+# CBOE's professional-customer classification changes definitionally in 2015:
+# coverage (the share of ticker-days with any procust activity) halves
+# permanently that year and never recovers, with the reduction concentrated in
+# less liquid names. Because procust is the control group, any comparison
+# spanning that boundary contrasts differently-composed populations. Results
+# are therefore reported for the full sample and for a primary sample starting
+# in 2016, where the control group is consistently defined throughout.
+PRIMARY_SAMPLE_START = "2016-01-01"
 
-def table1_main_did(outcomes: list[str] = None, cluster_by: str = "ticker") -> pl.DataFrame:
+
+def table1_main_did(
+    outcomes: list[str] = None,
+    cluster_by: str = "ticker",
+    date_from: str = None,
+    date_to: str = None,
+) -> pl.DataFrame:
     """Binary DiD on both panels. The treat:post coefficient answers 'does
     retail shift differently from professional customers', not merely 'does
     retail shift' -- a distinction that matters, since several outcomes are
@@ -53,7 +67,9 @@ def table1_main_did(outcomes: list[str] = None, cluster_by: str = "ticker") -> p
     outcomes = outcomes or OUTCOMES
     rows = []
     for oc in outcomes:
-        full = build_diff_in_diff_panel(outcome=oc, verbose=False)
+        full = build_diff_in_diff_panel(
+            outcome=oc, verbose=False, date_from=date_from, date_to=date_to
+        )
         bal = build_balanced_panel(full, verbose=False)
         m_f = run_diff_in_diff(full, cluster_by=cluster_by)
         m_b = run_diff_in_diff(bal, cluster_by=cluster_by)
@@ -69,14 +85,19 @@ def table1_main_did(outcomes: list[str] = None, cluster_by: str = "ticker") -> p
     return pl.DataFrame(rows)
 
 
-def table2_levels(outcomes: list[str] = None, balanced: bool = True) -> pl.DataFrame:
+def table2_levels(
+    outcomes: list[str] = None, balanced: bool = True,
+    date_from: str = None, date_to: str = None,
+) -> pl.DataFrame:
     """Mean share by participant group and period. A DiD coefficient alone
     cannot show which group moved, and in several cases here the answer is
     'the professionals did', so the levels belong alongside every result."""
     outcomes = outcomes or OUTCOMES
     frames = []
     for oc in outcomes:
-        panel = build_diff_in_diff_panel(outcome=oc, verbose=False)
+        panel = build_diff_in_diff_panel(
+            outcome=oc, verbose=False, date_from=date_from, date_to=date_to
+        )
         if balanced:
             panel = build_balanced_panel(panel, verbose=False)
         lv = (
@@ -92,7 +113,12 @@ def table2_levels(outcomes: list[str] = None, balanced: bool = True) -> pl.DataF
     )
 
 
-def table3_dispersion(outcomes: list[str] = None, cluster_by: str = "ticker") -> pl.DataFrame:
+def table3_dispersion(
+    outcomes: list[str] = None,
+    cluster_by: str = "ticker",
+    date_from: str = None,
+    date_to: str = None,
+) -> pl.DataFrame:
     """Continuous dispersion, with and without a firm-size control.
 
     Dispersion is strongly negatively correlated with firm size, so an
@@ -101,7 +127,9 @@ def table3_dispersion(outcomes: list[str] = None, cluster_by: str = "ticker") ->
     outcomes = outcomes or OUTCOMES
     rows = []
     for oc in outcomes:
-        panel = build_diff_in_diff_panel(outcome=oc, verbose=False)
+        panel = build_diff_in_diff_panel(
+            outcome=oc, verbose=False, date_from=date_from, date_to=date_to
+        )
         m_base = run_dispersion_regression(panel, spec="triple", cluster_by=cluster_by)
         pmc = add_market_cap(panel, verbose=False)
         m_ctrl = run_dispersion_regression(
@@ -122,7 +150,8 @@ def table3_dispersion(outcomes: list[str] = None, cluster_by: str = "ticker") ->
 
 
 def table4_dispersion_quartiles(
-    outcome: str = "otm", cluster_by: str = "ticker"
+    outcome: str = "otm", cluster_by: str = "ticker",
+    date_from: str = None, date_to: str = None,
 ) -> pl.DataFrame:
     """Dispersion quartile dummies rather than a linear term, for both the
     composition outcome and volume.
@@ -133,7 +162,12 @@ def table4_dispersion_quartiles(
     the data show which."""
     import statsmodels.formula.api as smf
 
-    panel = add_market_cap(build_diff_in_diff_panel(outcome=outcome, verbose=False), verbose=False)
+    panel = add_market_cap(
+        build_diff_in_diff_panel(
+            outcome=outcome, verbose=False, date_from=date_from, date_to=date_to
+        ),
+        verbose=False,
+    )
     rows = []
 
     for dep_label, dep in [("share", "share"), ("log_volume", "log_volume")]:
@@ -171,11 +205,18 @@ def table4_dispersion_quartiles(
     return pl.DataFrame(rows)
 
 
-def table5_sample(outcome: str = "otm") -> pl.DataFrame:
+def table5_sample(
+    outcome: str = "otm", date_from: str = None, date_to: str = None,
+) -> pl.DataFrame:
     """Sample construction and the selection diagnostic. Documents how many
     firm-events survive each stage, and the size difference between events
     present in both periods and those present in baseline only."""
-    panel = add_market_cap(build_diff_in_diff_panel(outcome=outcome, verbose=False), verbose=False)
+    panel = add_market_cap(
+        build_diff_in_diff_panel(
+            outcome=outcome, verbose=False, date_from=date_from, date_to=date_to
+        ),
+        verbose=False,
+    )
     bal = build_balanced_panel(panel, verbose=False)
 
     df = panel.filter(pl.col("log_mktcap").is_not_null() & (pl.col("avg_daily_vol") > 0))
@@ -197,6 +238,7 @@ def table5_sample(outcome: str = "otm") -> pl.DataFrame:
     )
 
     summary = pl.DataFrame([
+        {"stage": f"sample start ({date_from or 'all'})", "value": float("nan")},
         {"stage": "panel rows (full)", "value": float(panel.height)},
         {"stage": "panel rows (balanced)", "value": float(bal.height)},
         {"stage": "balanced retention rate", "value": bal.height / panel.height},
@@ -208,24 +250,70 @@ def table5_sample(outcome: str = "otm") -> pl.DataFrame:
     return {"summary": summary, "selection": presence}
 
 
-def build_all_tables(out_dir: Path = None, save: bool = True) -> dict:
+def table6_period_comparison(
+    outcomes: list[str] = None, cluster_by: str = "ticker"
+) -> pl.DataFrame:
+    """Headline difference-in-differences estimates on the full sample against
+    the 2016-onward primary sample, both on balanced panels.
+
+    The professional-customer category's definition changes in 2015, so the
+    full-sample estimates pool two differently-composed control groups. This
+    table quantifies how much that matters for each outcome: a large gap means
+    the pooled estimate was substantially driven by the pre-2015 period, where
+    the comparison is not like-for-like."""
+    outcomes = outcomes or OUTCOMES
+    full = table1_main_did(outcomes=outcomes, cluster_by=cluster_by)
+    restricted = table1_main_did(
+        outcomes=outcomes, cluster_by=cluster_by, date_from=PRIMARY_SAMPLE_START
+    )
+    return (
+        full.select(["outcome", "balanced_coef", "balanced_p", "balanced_n"])
+        .rename({
+            "balanced_coef": "pooled_coef", "balanced_p": "pooled_p",
+            "balanced_n": "pooled_n",
+        })
+        .join(
+            restricted.select(["outcome", "balanced_coef", "balanced_p", "balanced_n"])
+            .rename({
+                "balanced_coef": "from2016_coef", "balanced_p": "from2016_p",
+                "balanced_n": "from2016_n",
+            }),
+            on="outcome",
+        )
+        .with_columns(
+            (pl.col("from2016_coef") - pl.col("pooled_coef")).alias("difference")
+        )
+    )
+
+
+def build_all_tables(
+    out_dir: Path = None, save: bool = True, date_from: str = PRIMARY_SAMPLE_START,
+) -> dict:
+    """Regenerates every reported table. date_from defaults to the primary
+    sample start (2016) rather than the full history, because the
+    professional-customer control group is not consistently defined before
+    2015 -- see PRIMARY_SAMPLE_START. Pass date_from=None to reproduce the
+    pooled estimates instead."""
     out_dir = out_dir or RESULTS_DIR
     if save:
         out_dir.mkdir(parents=True, exist_ok=True)
 
+    print(f"Sample: {date_from or '2011'} onward\n")
     tables = {}
     print("Building table 1 (main DiD)...")
-    tables["table1_main_did"] = table1_main_did()
+    tables["table1_main_did"] = table1_main_did(date_from=date_from)
     print("Building table 2 (levels)...")
-    tables["table2_levels"] = table2_levels()
+    tables["table2_levels"] = table2_levels(date_from=date_from)
     print("Building table 3 (dispersion, size-controlled)...")
-    tables["table3_dispersion"] = table3_dispersion()
+    tables["table3_dispersion"] = table3_dispersion(date_from=date_from)
     print("Building table 4 (dispersion quartiles)...")
-    tables["table4_dispersion_quartiles"] = table4_dispersion_quartiles()
+    tables["table4_dispersion_quartiles"] = table4_dispersion_quartiles(date_from=date_from)
     print("Building table 5 (sample diagnostics)...")
-    t5 = table5_sample()
+    t5 = table5_sample(date_from=date_from)
     tables["table5_sample_summary"] = t5["summary"]
     tables["table5_sample_selection"] = t5["selection"]
+    print("Building table 6 (period comparison)...")
+    tables["table6_period_comparison"] = table6_period_comparison()
 
     if save:
         for name, tbl in tables.items():

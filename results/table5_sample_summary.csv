@@ -1,6 +1,7 @@
 stage,value
-panel rows (full),317190.0
-panel rows (balanced),185416.0
-balanced retention rate,0.5845581512658028
-distinct firm-events (full),97203.0
-distinct tickers (full),5509.0
+sample start (2016-01-01),NaN
+panel rows (full),177247.0
+panel rows (balanced),91124.0
+balanced retention rate,0.51410743200167
+distinct firm-events (full),57286.0
+distinct tickers (full),4547.0
