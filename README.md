@@ -5,8 +5,8 @@ trading activity (CBOE Open/Close), 2011 – May 2022.
 
 Research questions:
 
-1. To what extent does earnings-related uncertainty — measured through
-   analyst forecast dispersion and prior earnings volatility — predict retail
+1. To what extent does earnings-related uncertainty measured through
+   analyst forecast dispersion and prior earnings volatility predict retail
    investor trading volume in equity options?
 2. How does earnings uncertainty influence the type of options contracts
    retail investors select?
@@ -70,7 +70,7 @@ requirements.txt
 ## Setup
 
 This repo contains no data. CBOE, IBES and CRSP are licensed commercial
-datasets, and the raw CBOE archive alone is several GB — well over GitHub's
+datasets, and the raw CBOE archive alone is several GB well over GitHub's
 file size limits. All three are available via supervisor access (CBOE and
 IBES) and WRDS (CRSP).
 
@@ -110,7 +110,7 @@ python src/pipeline/build_moneyness.py
 ```
 
 **Changing a pipeline script requires re-running its step.** The analysis
-notebooks read Parquet files, not code — editing a script has no effect until
+notebooks read Parquet files, not code, editing a script has no effect until
 the corresponding rebuild is executed, and each step skips itself when its
 output is already present. Delete the relevant output directory first.
 
@@ -146,7 +146,7 @@ dispersion is `STDEV / max(|MEANEST|, 0.05)`, following Diether, Malloy &
 Scherbina (2002); raw standard deviation is not comparable across firms with
 different EPS scales. Prior earnings volatility is the rolling standard
 deviation of past scaled earnings surprises over eight quarters, strictly
-backward-looking — the current event's own surprise is excluded, since it is
+backward-looking. The current event's own surprise is excluded, since it is
 not knowable before the announcement. Surprises are winsorised at the 1st and
 99th percentiles *before* the rolling standard deviation, because a small
 number of firms carry scale-corrupted MEANEST values that pass the ceiling
@@ -169,7 +169,7 @@ sample, unpriced volume is 0.2%.
 **Inference.** Difference-in-differences with a participant-group ×
 event-window interaction, estimated by OLS. The interaction coefficient tests
 whether retail's shift differs from professional customers', not merely
-whether retail shifts — a distinction that matters, since several results are
+whether retail shifts, a distinction that matters since several results are
 driven by professionals moving rather than retail. Standard errors are
 clustered by firm-event and, as a robustness check, by ticker.
 
@@ -197,8 +197,8 @@ exhibits a discontinuity in 2015. Coverage across ticker-days halves
 permanently (0.244 → 0.149) and never recovers; contamination of small-trade
 volume falls by two-thirds; trade size within the category rises sharply; and
 the event response reverses the following year. No other participant category
-absorbs the lost volume, and market-maker share — defined by exchange role
-rather than order counts — is stable throughout, ruling out a market-wide
+absorbs the lost volume, and market-maker share, defined by exchange role
+rather than order counts is stable throughout, ruling out a market-wide
 reporting change. The pattern is consistent with a narrowing of the
 population qualifying as Professional under CBOE's order-counting rules,
 which were the subject of industry harmonisation through 2015
