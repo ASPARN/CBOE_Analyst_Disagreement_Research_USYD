@@ -1,7 +1,8 @@
 # CBOE Options Analysis — Honours Thesis
 
 Analyst forecast dispersion (IBES) and its relationship to retail options
-trading activity (CBOE Open/Close), 2011 – May 2022.
+trading activity (CBOE Open/Close), 2011 – May 2022 (base sample) with an
+extension to 2022 – 2026 for post-COVID comparison.
 
 Research questions:
 
@@ -20,25 +21,64 @@ trade-size proxies used in most of this literature.
 University of Sydney, Discipline of Finance.
 Supervised by Professor Andrew Grant and Professor P. Joakim Westerholm.
 
+## Extend-alongside design
+
+The project maintains **two parallel datasets**:
+
+- **Base sample** (2011-01-03 to 2022-05-16). The thesis's primary results
+  are written on this sample. Files live at their original names
+  (`cboe_parquet/`, `crsp_daily.parquet`, `dispersion_events.parquet`, and so
+  on).
+- **Extended sample** (2022-08-01 onward). Built to support the post-COVID
+  era comparison, physically separated at every layer under a `*_ext`
+  naming convention (`cboe_parquet_ext/`, `crsp_daily_ext.parquet`,
+  `dispersion_events_ext.parquet`, etc.).
+
+The analysis layer reads either sample via a single switch in
+`event_window_profile`:
+
+```python
+from analysis.event_window_profile import set_sample
+set_sample("ext")   # every loader now reads *_ext
+set_sample("base")  # back to the base sample
+```
+
+No analysis code is duplicated between samples. The switch propagates through
+DiD panels, market cap, moneyness, CRSP frames, the proxy and order-size
+modules, and the results tables/figures. `verify_results` remains base-only
+because its checks are calibrated on the base numbers.
+
+The extended sample is capped at **2025-12-31 for anything requiring CRSP**
+(moneyness, market cap) and at **~Feb 2026 for events** (IBES actuals). CBOE
+options data itself runs to May 2026 but is unusable beyond those ceilings.
+There is an ~11-week source-data gap between the base end (2022-05-16) and
+the extension start (2022-08-01) — a genuine gap in the CBOE export.
+
 ## Repository layout
 
 ```
-CBOE_Data_2011_2022/     Raw CBOE per-day zip files (not included -- see Setup)
+CBOE_Data_2011_2026/     Raw CBOE per-day zip files, full history (not included)
+CBOE_Data_2022_2026_new/ New-period zips isolated for staged extraction
 data/                    All generated and licensed data (gitignored)
-  CBOE_DATA_RAW_EXTRACTED/    extract_zips.py
-  cboe_parquet/               ingest_cboe.py
-  cboe_daily_retail/          build_daily_retail_activity.py
-  cboe_daily_moneyness/       build_moneyness.py
-  ibes_quarterly_report/      IBES export goes here; ingestion output lands here
-  crsp/                       CRSP export goes here; ingestion output lands here
+  CBOE_DATA_RAW_EXTRACTED/          base extraction (extract_zips.py)
+  CBOE_DATA_RAW_EXTRACTED_EXT/      extension extraction
+  cboe_parquet/                     base ingested (ingest_cboe.py)
+  cboe_parquet_ext/                 extension ingested
+  cboe_daily_retail/                base (build_daily_retail_activity.py)
+  cboe_daily_retail_ext/            extension
+  cboe_daily_moneyness/             base (build_moneyness.py)
+  cboe_daily_moneyness_ext/         extension
+  ibes_quarterly_report/            IBES export + dispersion_events(_ext).parquet
+  crsp/                             CRSP export + crsp_daily(_ext).parquet
+    ext_source/                     new CRSP CSV isolated for staged ingestion
 results/                 Generated tables (CSV) and figures (PNG)
 notebooks/
-  A1_data_pipeline_setup.ipynb       Builds every intermediate dataset, in order
-  B1_core_analysis.ipynb             Event windows, difference-in-differences,
-                                      firm-size robustness
-  B2_period_and_measurement.ipynb    Period analysis, the 2015 classification
-                                      break, prior earnings volatility
-  C1_results.ipynb                   Regenerates reported tables and figures
+  A1_data_pipeline_setup.ipynb       Builds base sample, in dependency order
+  A2_extended_build.ipynb            Builds extension alongside base (*_ext files)
+  B1_core_analysis.ipynb             Base: event windows, DiD, firm-size robustness
+  B2_period_and_measurement.ipynb    Base: period analysis, 2015 break, earnings vol
+  B3_covid_era_analysis.ipynb        Post-COVID era comparison, spans both samples
+  C1_results.ipynb                   Regenerates reported tables and figures (base)
 src/
   paths.py                 Single source of truth for every path used project-wide
   pipeline/                Sequential, reproducible data preparation
@@ -50,20 +90,24 @@ src/
     build_daily_retail_activity.py  Option-level -> daily, by participant type
     ingest_crsp.py             CRSP daily stock file -> typed Parquet
     build_moneyness.py         Joins spot prices; classifies OTM/ITM/ATM
+                               (takes crsp_path for base-vs-ext routing)
   analysis/
-    event_window_profile.py       Event windows, composition, DiD, dispersion
-                                   regressions, era splits, balanced panels
+    event_window_profile.py       Event windows, DiD, dispersion regressions,
+                                   era splits, balanced panels, sample switch
     build_results_tables.py       Regenerates every reported table -> results/
     build_results_figures.py      Regenerates every reported figure -> results/
-    verify_results.py             Recomputes 17 headline numbers and compares
-                                   them against the values reported
-    compare_retail_proxies.py     Exchange classification vs. the small-trade proxy
+    verify_results.py             Recomputes 17 headline numbers (base only)
+    compare_retail_proxies.py     Exchange classification vs. small-trade proxy
     analyse_order_size.py         Trade size around the 2015 rule changes
+    covid_era_comparison.py       Three-era DiD, size-controlled, era levels
+    covid_era_figures.py          Era coefficient and levels figures
     check_moneyness_coverage.py   Spot-price coverage of the event sample
     check_delisting_exposure.py   Survivorship exposure in the ticker universe
     scope_spot_requirements.py    Sizes the spot-price requirement before fetching
 extract_prior_outputs.py       Extracts numeric results from notebook outputs, so
                                 two runs can be diffed
+reference_before_clean_run.json Recorded results from before the notebooks were
+                                restructured
 requirements.txt
 ```
 
@@ -78,23 +122,35 @@ IBES) and WRDS (CRSP).
    ```
    pip install -r requirements.txt
    ```
-2. Place the CBOE daily zip files in `CBOE_Data_2011_2022/`
+2. Place the CBOE daily zip files in `CBOE_Data_2011_2026/` (the folder holds
+   both the base and extension zips)
 3. Place the IBES Summary History export in `data/ibes_quarterly_report/`
-4. Place the CRSP Daily Stock File export in `data/crsp/`
+   (one file covers 2011–2026)
+4. Place the base CRSP Daily Stock File export in `data/crsp/`; for the
+   extension, place the 2022–2025 pull in `data/crsp/ext_source/`
 
 CRSP was requested from WRDS as **Annual Update → Stock Version 2 (CIZ) →
-Stock Daily Security Data**, covering 2010-01-01 to 2022-05-16, with
-identifiers (PERMNO, Ticker, CUSIP), prices (DlyPrc, DlyPrcFlg, DlyFacPrc,
-DlyClose, DlyBid, DlyAsk), capitalisation (DlyCap, ShrOut), volume (DlyVol),
-and delisting fields (DelActionType, DelStatusType, DelReasonType).
+Stock Daily Security Data**, with identifiers (PERMNO, Ticker, CUSIP),
+prices (DlyPrc, DlyPrcFlg, DlyFacPrc, DlyClose, DlyBid, DlyAsk),
+capitalisation (DlyCap, ShrOut), volume (DlyVol), and delisting fields
+(DelActionType, DelStatusType, DelReasonType). Base pull covers 2010-01-01
+to 2022-07-31; extension pull covers 2022-01-03 to 2025-12-31.
 
 ## Running everything
 
-Run `notebooks/A1_data_pipeline_setup.ipynb` top to bottom from a clean
-kernel. It executes every pipeline step in dependency order, skips any stage
-whose output already exists, and ends by verifying the headline results.
+**Base sample:** run `notebooks/A1_data_pipeline_setup.ipynb` top to bottom
+from a clean kernel. It executes every pipeline step in dependency order,
+skips any stage whose output already exists, and ends by verifying the
+headline results. Then run B1, B2 and C1, each from a clean kernel.
 
-Then run B1, B2 and C1, each from a clean kernel.
+**Extended sample (post-COVID comparison):** after A1, run
+`A2_extended_build.ipynb` from a clean kernel — it writes every `*_ext`
+counterpart without touching any base file. Then run B3 for the era analysis.
+
+**Changing a pipeline script requires re-running its step.** The analysis
+notebooks read Parquet files, not code — editing a script has no effect until
+the corresponding rebuild is executed, and each step skips itself when its
+output is already present. Delete the relevant output directory first.
 
 Each pipeline step can also be run directly from the repository root:
 
@@ -109,10 +165,19 @@ python src/pipeline/ingest_crsp.py
 python src/pipeline/build_moneyness.py
 ```
 
-**Changing a pipeline script requires re-running its step.** The analysis
-notebooks read Parquet files, not code — editing a script has no effect until
-the corresponding rebuild is executed, and each step skips itself when its
-output is already present. Delete the relevant output directory first.
+## Working with the two samples
+
+**For updated base figures**, do not re-run A1 (the data hasn't changed).
+Restart the kernel and re-run C1 (or the relevant cells in B1/B2). Data-build
+notebooks (A1, A2) run once; analysis notebooks (B1/B2/B3/C1) are re-run
+freely.
+
+**For the sample switch**, note it is stateful within a kernel session — a
+loader called after `set_sample("ext")` will read `*_ext` until the switch
+is flipped back. B3's functions manage the switch internally and restore to
+base afterwards, so a clean top-to-bottom run of any notebook is always safe.
+The safe habit for mixed sessions is: restart the kernel before running a
+notebook top to bottom, so the switch starts at its `base` default.
 
 ## Reproducing the results
 
@@ -123,9 +188,11 @@ python src/analysis/build_results_figures.py
 ```
 
 `verify_results.py` recomputes seventeen headline numbers from the current
-data and compares them against the values reported in the thesis. Every line
-should read MATCH; a mismatch means a result was computed against a
+base data and compares them against the values reported in the thesis. Every
+line should read MATCH; a mismatch means a result was computed against a
 superseded intermediate file. It runs automatically as the last step of A1.
+It does not currently have an extended equivalent — the base-sample numbers
+are the calibration.
 
 Tables and figures land in `results/` and `results/figures/`. Nothing reported
 in the thesis is copied from notebook output.
@@ -164,7 +231,9 @@ contract level using CRSP daily prices, with a ±2% at-the-money band. About
 9% of CBOE option-rows have no CRSP price; these are almost entirely index
 and volatility products (^SPX, ^VIX, ^RUT and similar), which have no
 earnings announcements and were never in the event sample. Within the event
-sample, unpriced volume is 0.2%.
+sample, unpriced volume is 0.2%. On the extended sample, 2026 options are
+unpriced in full because CRSP ends 2025-12-31 — this is the design ceiling,
+not a data error.
 
 **Inference.** Difference-in-differences with a participant-group ×
 event-window interaction, estimated by OLS. The interaction coefficient tests
@@ -209,6 +278,19 @@ the control group, comparisons spanning that boundary contrast
 differently-composed populations, so results are reported from 2016 onward
 with pooled estimates in `table6_period_comparison`.
 
+**Post-COVID era comparison.** B3 compares retail behaviour across three
+eras: pre-COVID (2016–2019, base), COVID (2020–2021, base), and post-COVID
+(2022-08-01 – 2025-12-31, extended). Eras live in different physical datasets
+and are compared as separate DiD estimates, never pooled — a regression
+spanning both a classification break and a pandemic would not be
+interpretable. `covid_era_comparison` handles the sample switching internally
+and restores state afterwards. Pre-COVID starts at 2016 to keep the control
+group comparable across all three eras (avoiding the 2015 break). Because
+pre-COVID and COVID look alike on most outcomes, the observed change is
+best framed as a *post-boom* period rather than a *COVID effect* — too much
+changed at once (zero-commission maturity, stimulus, meme-stock episode) to
+attribute the shift to any single cause.
+
 **Known limitations.** Roughly 40% of firm-events have no same-day CBOE
 options activity, concentrated among smaller and less liquid names. About 36%
 of tickers in the price-matched universe stopped trading before the sample
@@ -225,10 +307,11 @@ no available data source and is not included.
 
 ## Notes
 
-- `CBOE_Data_2011_2022` is spelled with this exact capitalisation on disk.
+- `CBOE_Data_2011_2026` is spelled with this exact capitalisation on disk.
   Windows will not care if it does not match; Mac and Linux will.
-- The CBOE dataset runs from 2011-01-03 through 2022-05-16, not through the
-  full 2022 calendar year.
+- The base CBOE dataset runs from 2011-01-03 through 2022-05-16; the
+  extension runs from 2022-08-01 through 2026-05-29, with the ~11-week gap
+  a genuine feature of the source exports.
 - `extract_prior_outputs.py` captures every number a notebook reports, so two
   runs can be diffed mechanically. `reference_before_clean_run.json` holds the
   values from before the notebooks were restructured.

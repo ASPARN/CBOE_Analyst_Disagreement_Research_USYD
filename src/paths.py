@@ -23,7 +23,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 
 # NOTE: this folder name is case-sensitive on Mac/Linux, even though Windows
 # won't complain either way. Match this exactly to the real folder on disk.
-ZIP_DIR = PROJECT_ROOT / "CBOE_Data_2011_2022"
+ZIP_DIR = PROJECT_ROOT / "CBOE_Data_2011_2026"
 
 DATA_DIR = PROJECT_ROOT / "data"
 EXTRACTED_DIR = DATA_DIR / "CBOE_DATA_RAW_EXTRACTED"

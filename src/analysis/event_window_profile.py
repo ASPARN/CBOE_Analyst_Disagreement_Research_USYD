@@ -28,13 +28,57 @@ import polars as pl
 
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
-from paths import DATA_DIR, IBES_DIR
 
-DAILY_RETAIL_DIR = DATA_DIR / "cboe_daily_retail"
+from paths import DATA_DIR, IBES_DIR, CRSP_DIR
+
+# ---- sample switch -------------------------------------------------------
+# The project maintains two parallel datasets: "base" (2011-2022, the sample
+# the thesis results are written on) and "ext" (2022-2026, the extension).
+# set_sample() flips every data loader below between them, and invalidates
+# the cached CRSP frames so a switch can't silently reuse the wrong prices.
+_SAMPLE = "base"
+
+
+def set_sample(sample: str) -> None:
+    """Switch all data loading between 'base' and 'ext'. Call before running
+    any analysis; it resets the CRSP caches so market-cap and volume joins
+    reload from the correct sample."""
+    global _SAMPLE, _CRSP_MKTCAP_CACHE, _CRSP_VOL_CACHE
+    if sample not in ("base", "ext"):
+        raise ValueError(f"sample must be 'base' or 'ext', got {sample!r}")
+    _SAMPLE = sample
+    _CRSP_MKTCAP_CACHE = None
+    _CRSP_VOL_CACHE = None
+    print(f"Sample set to '{sample}'. Data loads from "
+          f"{'*_ext' if sample == 'ext' else 'base'} files.")
+
+
+def current_sample() -> str:
+    return _SAMPLE
+
+
+def _suffix() -> str:
+    return "_ext" if _SAMPLE == "ext" else ""
+
+
+def _daily_retail_dir() -> Path:
+    return DATA_DIR / f"cboe_daily_retail{_suffix()}"
+
+
+def _moneyness_dir() -> Path:
+    return DATA_DIR / f"cboe_daily_moneyness{_suffix()}"
+
+
+def _crsp_path() -> Path:
+    return CRSP_DIR / f"crsp_daily{_suffix()}.parquet"
+
+
+def _events_path() -> Path:
+    return IBES_DIR / f"dispersion_events{_suffix()}.parquet"
 
 
 def _load_daily_retail() -> pl.DataFrame:
-    files = sorted(DAILY_RETAIL_DIR.glob("daily_retail_*.parquet"))
+    files = sorted(_daily_retail_dir().glob("daily_retail_*.parquet"))
     if not files:
         return pl.DataFrame(schema={"underlying_symbol": pl.Utf8, "quote_date": pl.Date, "retail_vol_total": pl.Int64})
     daily = pl.concat([pl.read_parquet(f) for f in files])
@@ -43,7 +87,7 @@ def _load_daily_retail() -> pl.DataFrame:
     # Both tables are keyed on (underlying_symbol, quote_date) with identical
     # row counts, so this is a clean 1:1 join. Kept optional so the rest of
     # the analysis still works before moneyness exists.
-    mny_dir = DATA_DIR / "cboe_daily_moneyness"
+    mny_dir = _moneyness_dir()
     mny_files = sorted(mny_dir.glob("daily_moneyness_*.parquet"))
     if mny_files:
         mny = pl.concat([pl.read_parquet(f) for f in mny_files])
@@ -84,7 +128,7 @@ def _match_events_to_daily(
     build_composition_comparison aggregate this same matched data
     differently, so they're guaranteed to agree on which events/days
     actually matched."""
-    events_path = events_path or (IBES_DIR / "dispersion_events.parquet")
+    events_path = events_path or _events_path()
     _ev_cols = ["OFTIC", "ANNDATS_ACT"]
     # dispersion_scaled is the continuous regressor; carried through here so
     # downstream regressions can use it instead of the binary near-event flag
@@ -561,8 +605,7 @@ def _crsp_mktcap_frame() -> pl.DataFrame:
     outcome, and re-reading the full CRSP parquet each time is wasteful."""
     global _CRSP_MKTCAP_CACHE
     if _CRSP_MKTCAP_CACHE is None:
-        from paths import CRSP_DIR
-        crsp_path = CRSP_DIR / "crsp_daily.parquet"
+        crsp_path = _crsp_path()
         if not crsp_path.exists():
             raise FileNotFoundError(f"CRSP parquet not found at {crsp_path}. Run ingest_crsp.py first.")
         _CRSP_MKTCAP_CACHE = (
@@ -977,3 +1020,127 @@ def decompose_break_by_year(
                 "n_near": int(near["n"][0]),
             })
     return pl.DataFrame(rows).sort(["era", "participant_group"])
+
+
+_CRSP_VOL_CACHE = None
+
+
+def _crsp_volume_frame() -> pl.DataFrame:
+    """Loads and caches CRSP daily volume, for the abnormal-volume attention
+    proxy. Cached like the market-cap frame, since it is read once per outcome
+    when building a robustness table."""
+    global _CRSP_VOL_CACHE
+    if _CRSP_VOL_CACHE is None:
+        crsp_path = _crsp_path()
+        if not crsp_path.exists():
+            raise FileNotFoundError(f"CRSP parquet not found at {crsp_path}. Run ingest_crsp.py first.")
+        _CRSP_VOL_CACHE = (
+            pl.scan_parquet(crsp_path)
+            .select(["Ticker", "DlyCalDt", "DlyVol"])
+            .filter(pl.col("DlyVol").is_not_null() & (pl.col("DlyVol") >= 0))
+            .unique(subset=["Ticker", "DlyCalDt"])
+            .collect()
+            .sort(["Ticker", "DlyCalDt"])
+        )
+    return _CRSP_VOL_CACHE
+
+
+def add_abnormal_volume(
+    panel: pl.DataFrame,
+    lookback_days: int = 60,
+    gap_days: int = 5,
+    min_days: int = 20,
+    verbose: bool = True,
+) -> pl.DataFrame:
+    """Adds an abnormal-volume attention proxy to a firm-event panel.
+
+    Motivation. The research proposal lists media attention as a control, to
+    separate information-driven from attention-driven retail behaviour, but no
+    media dataset is yet available. Abnormal trading volume in the underlying
+    stock ahead of an announcement is the conventional stand-in: elevated
+    volume signals that the stock is drawing attention. It is a weaker measure
+    than a true media buzz series -- volume conflates attention with liquidity,
+    rebalancing and index effects -- but it is well precedented and requires no
+    data beyond the CRSP volume already ingested. It is designed to be swapped
+    for a MarketPsych buzz column when that access arrives.
+
+    Construction. For each firm-event, abnormal volume is the log ratio of
+    average daily volume in a pre-announcement window to the stock's own
+    trailing average:
+
+        abnormal_volume = ln(mean daily volume over the [gap, gap+20] days
+                             before the announcement
+                             / mean daily volume over the trailing
+                               lookback_days before that)
+
+    STRICTLY PRE-ANNOUNCEMENT. Every day used falls before ANNDATS_ACT. The
+    announcement day and everything after it are excluded, because the event's
+    own volume spike is the outcome's driver, not a measure of prior
+    attention. A measure that leaked post-announcement volume would be
+    mechanically correlated with the near-event activity it is meant to
+    explain.
+
+    The measure is firm-relative (each stock compared to its own history), so
+    it does not need cross-firm normalisation the way raw volume would.
+    """
+    crsp = _crsp_volume_frame()
+
+    # for each (ticker, announcement date) resolve the pre-event windows.
+    # recent window: the ~20 trading days ending gap_days before the event.
+    # baseline window: the lookback_days before that. Calendar-day offsets are
+    # widened to approximate trading days (roughly 7 calendar days per 5
+    # trading days), and averages are taken over whatever CRSP rows fall in
+    # range, so occasional missing days do not break the measure.
+    events = panel.select(["resolved_ticker", "ANNDATS_ACT"]).unique()
+
+    recent_end_off = gap_days
+    recent_start_off = gap_days + 28          # ~20 trading days
+    base_end_off = recent_start_off
+    base_start_off = recent_start_off + round(lookback_days * 7 / 5)
+
+    ev = events.with_columns(
+        (pl.col("ANNDATS_ACT") - pl.duration(days=recent_end_off)).alias("recent_end"),
+        (pl.col("ANNDATS_ACT") - pl.duration(days=recent_start_off)).alias("recent_start"),
+        (pl.col("ANNDATS_ACT") - pl.duration(days=base_end_off)).alias("base_end"),
+        (pl.col("ANNDATS_ACT") - pl.duration(days=base_start_off)).alias("base_start"),
+    )
+
+    # join CRSP volume to each event's ticker, then aggregate within each window
+    joined = ev.join(crsp, left_on="resolved_ticker", right_on="Ticker", how="left")
+
+    agg = (
+        joined.group_by(["resolved_ticker", "ANNDATS_ACT"])
+        .agg(
+            pl.col("DlyVol")
+            .filter(pl.col("DlyCalDt").is_between(pl.col("recent_start"), pl.col("recent_end")))
+            .mean().alias("recent_vol"),
+            pl.col("DlyVol")
+            .filter(pl.col("DlyCalDt").is_between(pl.col("recent_start"), pl.col("recent_end")))
+            .len().alias("recent_n"),
+            pl.col("DlyVol")
+            .filter(pl.col("DlyCalDt").is_between(pl.col("base_start"), pl.col("base_end")))
+            .mean().alias("base_vol"),
+            pl.col("DlyVol")
+            .filter(pl.col("DlyCalDt").is_between(pl.col("base_start"), pl.col("base_end")))
+            .len().alias("base_n"),
+        )
+        .with_columns(
+            pl.when(
+                (pl.col("recent_n") >= min_days)
+                & (pl.col("base_n") >= min_days)
+                & (pl.col("recent_vol") > 0)
+                & (pl.col("base_vol") > 0)
+            )
+            .then((pl.col("recent_vol") / pl.col("base_vol")).log())
+            .otherwise(None)
+            .alias("abnormal_volume")
+        )
+        .select(["resolved_ticker", "ANNDATS_ACT", "abnormal_volume"])
+    )
+
+    out = panel.join(agg, on=["resolved_ticker", "ANNDATS_ACT"], how="left")
+    n = out.filter(pl.col("abnormal_volume").is_not_null()).height
+    if verbose:
+        print(f"Abnormal volume computed for {n:,} of {out.height:,} panel rows "
+              f"({n / out.height:.1%}; needs {min_days}+ days in each window)")
+    return out

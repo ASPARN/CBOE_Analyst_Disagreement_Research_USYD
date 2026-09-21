@@ -1,14 +1,82 @@
-# Data -- too large for git, provided by supervisors
-data/
+# =============================================================================
+# .gitignore for the CBOE Options Analysis project
+# =============================================================================
+# Rule of thumb: keep code (src/, notebooks/), keep small results (results/),
+# ignore raw data and derived data (data/), and ignore anything with licence
+# restrictions or that GitHub would reject on size.
+
+# -------- Raw and staged data (all licensed / oversized) ---------------------
+# The full zip archive lives at the repo root; keep only the folder structure
+CBOE_Data_2011_2026/
 CBOE_Data_2011_2022/
+CBOE_Data_2022_2026_new/
+CBOE_Data_2022_2026/
 
-# Python
+# -------- Generated and licensed data ---------------------------------------
+# Everything under data/ is either a licensed export (CBOE, IBES, CRSP) or a
+# derived file produced by the pipeline. The pipeline rebuilds it from raw
+# inputs, so it never belongs in the repo.
+data/
+
+# In case someone puts data at the repo root by mistake, ignore those too
+/*.parquet
+/*.csv
+/*.zip
+
+# -------- Python -------------------------------------------------------------
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.installed.cfg
+*.egg
 
-# Jupyter
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env
+
+# -------- Jupyter -----------------------------------------------------------
+# Notebook checkpoints — Jupyter's autosaves, never worth committing
 .ipynb_checkpoints/
 
-# OS
+# -------- IDE / editor scratch ----------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
 Thumbs.db
+
+# -------- Cached test / lint output -----------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# -------- Results ------------------------------------------------------------
+# results/ IS committed — the tables and figures are small, and reviewers
+# should see them without running the pipeline. Uncomment the next line if
+# you want to keep results local only.
+# results/
+
+# But never commit anything oversized or that snuck in as an intermediate
+results/*.parquet
+results/*.zip
+results/**/*.parquet
+
+# -------- Personal / working files ------------------------------------------
+# Scratch space for ad-hoc analysis that isn't meant to become part of the repo
+scratch/
+notes/
+TODO.md
+*.local.md

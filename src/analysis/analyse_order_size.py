@@ -43,15 +43,14 @@ import polars as pl
 
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
-from paths import DATA_DIR
 
-DAILY_RETAIL_DIR = DATA_DIR / "cboe_daily_retail"
+from analysis.event_window_profile import _daily_retail_dir
 GROUPS = ["retail", "procust", "firm", "bd", "mm"]
 
 
 def order_size_by_year() -> pl.DataFrame:
     """Mean contracts per transaction by participant group and year."""
-    files = sorted(DAILY_RETAIL_DIR.glob("daily_retail_*.parquet"))
+    files = sorted(_daily_retail_dir().glob("daily_retail_*.parquet"))
     if not files:
         raise FileNotFoundError(f"No daily files in {DAILY_RETAIL_DIR}.")
     daily = pl.concat([pl.read_parquet(f) for f in files])

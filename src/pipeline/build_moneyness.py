@@ -56,8 +56,8 @@ from paths import PARQUET_DIR, CRSP_DIR, DATA_DIR
 ATM_BAND = 0.02  # |ln(strike/spot)| within this counts as at-the-money
 
 
-def _load_crsp_prices() -> pl.DataFrame:
-    path = CRSP_DIR / "crsp_daily.parquet"
+def _load_crsp_prices(crsp_path: Path = None) -> pl.DataFrame:
+    path = crsp_path or (CRSP_DIR / "crsp_daily.parquet")
     if not path.exists():
         raise FileNotFoundError(f"CRSP parquet not found at {path}. Run ingest_crsp.py first.")
     return (
@@ -89,11 +89,12 @@ def build_moneyness(
     cboe_dir: Path = PARQUET_DIR,
     out_dir: Path = None,
     atm_band: float = ATM_BAND,
+    crsp_path: Path = None, 
 ) -> pl.DataFrame:
     out_dir = out_dir or (DATA_DIR / "cboe_daily_moneyness")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    crsp = _load_crsp_prices()
+    crsp = _load_crsp_prices(crsp_path)
     crsp_tickers = set(crsp["Ticker"].unique().to_list())
     print(f"CRSP price rows: {crsp.height:,}  |  unique tickers: {len(crsp_tickers):,}\n")
 
