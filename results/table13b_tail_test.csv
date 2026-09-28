@@ -1,0 +1,9 @@
+group,events,hits,hit_rate,p_vs_50pct,flow,tail
+high KI (top tercile),291,149,0.512027,0.725110,retail_abn_flow,0.010000
+other industries,457,234,0.512035,0.639990,retail_abn_flow,0.010000
+all,748,383,0.512032,0.534245,retail_abn_flow,0.010000
+difference (high KI - other),748,,-0.000008,0.999840,retail_abn_flow,0.010000
+high KI (top tercile),598,310,0.518395,0.390494,retail_abn_flow,0.020000
+other industries,898,471,0.524499,0.151267,retail_abn_flow,0.020000
+all,1496,781,0.522059,0.092820,retail_abn_flow,0.020000
+difference (high KI - other),1496,,-0.006104,0.816903,retail_abn_flow,0.020000

@@ -1,0 +1,10 @@
+sector,events,top_firms
+Industrials,31680,"WMS, GVA, AZZ, BWXT, DLX, BDC, ZEUS, PWR"
+Financials,28349,"RMAX, FDUS, AIG, WU, PRI, MKL, WD, VOYA"
+Other,23894,"EDU, AL, BFAM, STN, EXEL, G, LOPE, MG"
+Technology,19708,"QLYS, GDDY, SWKS, CRUS, UEIC, OSIS, ACIW, POWI"
+Pharma & biotech,13979,"BGNE, NBIX, PTCT, ALDX, AMPH, TGTX, ACAD, HRTX"
+Consumer & retail,12408,"HAIN, KHC, TILE, PZZA, PENN, HBI, BGS, H"
+Energy,6667,"PAGP, CLMT, EOG, SM, NGS, NBR, PBA, COP"
+Utilities,3064,"ETR, DUK, ATO, TAC, PPL, NFG, LNT, EXC"
+Unknown,1104,"GLMD, MDWD, GLOP, XENE, OEC, DNOW, BCRH, IRT"

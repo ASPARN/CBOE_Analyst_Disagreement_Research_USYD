@@ -1,0 +1,63 @@
+hypothesis,test,outcome,term,n,coef,se,p,group,moderator,form
+D1,"dispersion, linear",car01,flow_z,93841,-0.000637,0.000295,0.030641,retail,dispersion,linear
+D1,"dispersion, linear",car01,flow_z:mod,93841,-0.000143,0.000329,0.664613,retail,dispersion,linear
+D1,"dispersion, linear",car01,flow_z:size_z,93841,0.000131,0.000390,0.736692,retail,dispersion,linear
+D1,"dispersion, linear",car01,flow_z:attn_z,93841,0.000429,0.000329,0.191668,retail,dispersion,linear
+D1,"dispersion, top_quartile",car01,flow_z,93841,-0.000380,0.000333,0.254491,retail,dispersion,top_quartile
+D1,"dispersion, top_quartile",car01,flow_z:mod,93841,-0.001134,0.000797,0.154813,retail,dispersion,top_quartile
+D1,"dispersion, top_quartile",car01,flow_z:size_z,93841,0.000033,0.000393,0.932674,retail,dispersion,top_quartile
+D1,"dispersion, top_quartile",car01,flow_z:attn_z,93841,0.000414,0.000329,0.207708,retail,dispersion,top_quartile
+D2,"coverage, linear",car01,flow_z,93841,-0.000619,0.000299,0.038714,retail,coverage,linear
+D2,"coverage, linear",car01,flow_z:mod,93841,0.000100,0.000406,0.805853,retail,coverage,linear
+D2,"coverage, linear",car01,flow_z:size_z,93841,0.000109,0.000453,0.809099,retail,coverage,linear
+D2,"coverage, linear",car01,flow_z:attn_z,93841,0.000425,0.000329,0.196100,retail,coverage,linear
+D3,"earnings_vol, linear",car01,flow_z,79824,-0.000942,0.000297,0.001525,retail,earnings_vol,linear
+D3,"earnings_vol, linear",car01,flow_z:mod,79824,-0.000183,0.000351,0.601768,retail,earnings_vol,linear
+D3,"earnings_vol, linear",car01,flow_z:size_z,79824,0.000425,0.000409,0.298981,retail,earnings_vol,linear
+D3,"earnings_vol, linear",car01,flow_z:attn_z,79824,0.000441,0.000346,0.202591,retail,earnings_vol,linear
+D3,"earnings_vol, top_quartile",car01,flow_z,79824,-0.000916,0.000340,0.006994,retail,earnings_vol,top_quartile
+D3,"earnings_vol, top_quartile",car01,flow_z:mod,79824,-0.000040,0.000820,0.960795,retail,earnings_vol,top_quartile
+D3,"earnings_vol, top_quartile",car01,flow_z:size_z,79824,0.000481,0.000407,0.236811,retail,earnings_vol,top_quartile
+D3,"earnings_vol, top_quartile",car01,flow_z:attn_z,79824,0.000451,0.000346,0.192871,retail,earnings_vol,top_quartile
+D1,"dispersion, linear, abnormal flow",car01,flow_z,74728,-0.000398,0.000353,0.259711,retail,dispersion,linear
+D1,"dispersion, linear, abnormal flow",car01,flow_z:mod,74728,-0.000411,0.000396,0.299184,retail,dispersion,linear
+D1,"dispersion, linear, abnormal flow",car01,flow_z:size_z,74728,0.000256,0.000411,0.533054,retail,dispersion,linear
+D1,"dispersion, linear, abnormal flow",car01,flow_z:attn_z,74728,0.000225,0.000391,0.564580,retail,dispersion,linear
+comparison,"dispersion, linear, professional flow",car01,flow_z,31085,-0.000173,0.000495,0.727301,procust,dispersion,linear
+comparison,"dispersion, linear, professional flow",car01,flow_z:mod,31085,0.001382,0.000625,0.027174,procust,dispersion,linear
+comparison,"dispersion, linear, professional flow",car01,flow_z:size_z,31085,0.000237,0.000641,0.712030,procust,dispersion,linear
+comparison,"dispersion, linear, professional flow",car01,flow_z:attn_z,31085,0.000363,0.000606,0.548387,procust,dispersion,linear
+descriptive,"dispersion, linear, NO size interaction",car01,flow_z,93841,-0.000671,0.000323,0.037874,retail,dispersion,linear
+descriptive,"dispersion, linear, NO size interaction",car01,flow_z:mod,93841,-0.000163,0.000324,0.615049,retail,dispersion,linear
+descriptive,"dispersion, linear, NO size interaction",car01,flow_z:attn_z,93841,0.000442,0.000323,0.170980,retail,dispersion,linear
+D1,"dispersion, linear",surprise_scaled,flow_z,93675,-0.003551,0.003231,0.271748,retail,dispersion,linear
+D1,"dispersion, linear",surprise_scaled,flow_z:mod,93675,-0.004654,0.008967,0.603756,retail,dispersion,linear
+D1,"dispersion, linear",surprise_scaled,flow_z:size_z,93675,-0.000329,0.004182,0.937261,retail,dispersion,linear
+D1,"dispersion, linear",surprise_scaled,flow_z:attn_z,93675,0.003430,0.003605,0.341376,retail,dispersion,linear
+D1,"dispersion, top_quartile",surprise_scaled,flow_z,93675,0.000103,0.001873,0.956346,retail,dispersion,top_quartile
+D1,"dispersion, top_quartile",surprise_scaled,flow_z:mod,93675,-0.014662,0.011446,0.200196,retail,dispersion,top_quartile
+D1,"dispersion, top_quartile",surprise_scaled,flow_z:size_z,93675,-0.001065,0.003995,0.789757,retail,dispersion,top_quartile
+D1,"dispersion, top_quartile",surprise_scaled,flow_z:attn_z,93675,0.003469,0.003595,0.334610,retail,dispersion,top_quartile
+D2,"coverage, linear",surprise_scaled,flow_z,93675,-0.003370,0.002752,0.220864,retail,coverage,linear
+D2,"coverage, linear",surprise_scaled,flow_z:mod,93675,-0.000872,0.004718,0.853367,retail,coverage,linear
+D2,"coverage, linear",surprise_scaled,flow_z:size_z,93675,0.001397,0.004807,0.771397,retail,coverage,linear
+D2,"coverage, linear",surprise_scaled,flow_z:attn_z,93675,0.003468,0.003565,0.330617,retail,coverage,linear
+D3,"earnings_vol, linear",surprise_scaled,flow_z,79752,-0.004662,0.003417,0.172461,retail,earnings_vol,linear
+D3,"earnings_vol, linear",surprise_scaled,flow_z:mod,79752,-0.005636,0.007076,0.425701,retail,earnings_vol,linear
+D3,"earnings_vol, linear",surprise_scaled,flow_z:size_z,79752,-0.000482,0.004399,0.912688,retail,earnings_vol,linear
+D3,"earnings_vol, linear",surprise_scaled,flow_z:attn_z,79752,0.002844,0.003857,0.460906,retail,earnings_vol,linear
+D3,"earnings_vol, top_quartile",surprise_scaled,flow_z,79752,-0.002494,0.002312,0.280717,retail,earnings_vol,top_quartile
+D3,"earnings_vol, top_quartile",surprise_scaled,flow_z:mod,79752,-0.006349,0.011224,0.571608,retail,earnings_vol,top_quartile
+D3,"earnings_vol, top_quartile",surprise_scaled,flow_z:size_z,79752,0.000843,0.004166,0.839614,retail,earnings_vol,top_quartile
+D3,"earnings_vol, top_quartile",surprise_scaled,flow_z:attn_z,79752,0.003324,0.003865,0.389864,retail,earnings_vol,top_quartile
+D1,"dispersion, linear, abnormal flow",surprise_scaled,flow_z,74649,-0.010596,0.003207,0.000952,retail,dispersion,linear
+D1,"dispersion, linear, abnormal flow",surprise_scaled,flow_z:mod,74649,-0.004447,0.009788,0.649584,retail,dispersion,linear
+D1,"dispersion, linear, abnormal flow",surprise_scaled,flow_z:size_z,74649,0.001539,0.003525,0.662482,retail,dispersion,linear
+D1,"dispersion, linear, abnormal flow",surprise_scaled,flow_z:attn_z,74649,0.000409,0.003715,0.912321,retail,dispersion,linear
+comparison,"dispersion, linear, professional flow",surprise_scaled,flow_z,31065,-0.007279,0.003999,0.068702,procust,dispersion,linear
+comparison,"dispersion, linear, professional flow",surprise_scaled,flow_z:mod,31065,-0.002759,0.013450,0.837477,procust,dispersion,linear
+comparison,"dispersion, linear, professional flow",surprise_scaled,flow_z:size_z,31065,0.007804,0.005319,0.142356,procust,dispersion,linear
+comparison,"dispersion, linear, professional flow",surprise_scaled,flow_z:attn_z,31065,-0.006441,0.004641,0.165172,procust,dispersion,linear
+descriptive,"dispersion, linear, NO size interaction",surprise_scaled,flow_z,93675,-0.003467,0.003076,0.259715,retail,dispersion,linear
+descriptive,"dispersion, linear, NO size interaction",surprise_scaled,flow_z:mod,93675,-0.004603,0.008731,0.598025,retail,dispersion,linear
+descriptive,"dispersion, linear, NO size interaction",surprise_scaled,flow_z:attn_z,93675,0.003397,0.003518,0.334338,retail,dispersion,linear

@@ -1,0 +1,70 @@
+hypothesis,test,outcome,term,n,coef,se,p,group,flow
+H1/H2,"primary: flow x KI, flow x attention",car01,flow_z,93662,-0.000659,0.000331,0.046521,retail,retail_net_put
+H1/H2,"primary: flow x KI, flow x attention",car01,flow_z:ki_z,93662,0.000525,0.000364,0.149483,retail,retail_net_put
+H1/H2,"primary: flow x KI, flow x attention",car01,flow_z:attn_z,93662,0.000346,0.000352,0.326322,retail,retail_net_put
+H1,low-attention events,car01,flow_z,40809,-0.001670,0.000441,0.000153,retail,retail_net_put
+H1,low-attention events,car01,flow_z:ki_z,40809,0.000157,0.000517,0.762181,retail,retail_net_put
+H1,abnormal flow (vs firm's past),car01,flow_z,74741,-0.000518,0.000381,0.173275,retail,retail_abn_flow
+H1,abnormal flow (vs firm's past),car01,flow_z:ki_z,74741,0.000634,0.000401,0.113595,retail,retail_abn_flow
+H1,abnormal flow (vs firm's past),car01,flow_z:attn_z,74741,0.000283,0.000389,0.467027,retail,retail_abn_flow
+H1,short-dated OTM opening buys,car01,flow_z,82763,0.000540,0.000403,0.180211,retail,retail_sotm_flow
+H1,short-dated OTM opening buys,car01,flow_z:ki_z,82763,-0.000368,0.000399,0.355829,retail,retail_sotm_flow
+H1,short-dated OTM opening buys,car01,flow_z:attn_z,82763,0.000129,0.000373,0.730461,retail,retail_sotm_flow
+H1,excluding pharma & biotech,car01,flow_z,85902,-0.000746,0.000343,0.029835,retail,retail_net_put
+H1,excluding pharma & biotech,car01,flow_z:ki_z,85902,0.000449,0.000378,0.235501,retail,retail_net_put
+H1,excluding pharma & biotech,car01,flow_z:attn_z,85902,0.000427,0.000362,0.238233,retail,retail_net_put
+comparison,professional flow,car01,flow_z,31074,-0.000235,0.000534,0.660503,procust,procust_net_put
+comparison,professional flow,car01,flow_z:ki_z,31074,-0.000798,0.000579,0.168179,procust,procust_net_put
+comparison,professional flow,car01,flow_z:attn_z,31074,0.000319,0.000601,0.595825,procust,procust_net_put
+H1/H2,"primary: flow x KI, flow x attention",surprise_scaled,flow_z,93445,-0.005703,0.003474,0.100638,retail,retail_net_put
+H1/H2,"primary: flow x KI, flow x attention",surprise_scaled,flow_z:ki_z,93445,-0.000028,0.003195,0.993080,retail,retail_net_put
+H1/H2,"primary: flow x KI, flow x attention",surprise_scaled,flow_z:attn_z,93445,0.001091,0.004850,0.822090,retail,retail_net_put
+H1,low-attention events,surprise_scaled,flow_z,40696,-0.011197,0.004990,0.024842,retail,retail_net_put
+H1,low-attention events,surprise_scaled,flow_z:ki_z,40696,0.005009,0.005126,0.328524,retail,retail_net_put
+H1,abnormal flow (vs firm's past),surprise_scaled,flow_z,74619,-0.012036,0.003504,0.000592,retail,retail_abn_flow
+H1,abnormal flow (vs firm's past),surprise_scaled,flow_z:ki_z,74619,0.002363,0.003214,0.462089,retail,retail_abn_flow
+H1,abnormal flow (vs firm's past),surprise_scaled,flow_z:attn_z,74619,-0.000896,0.004050,0.824994,retail,retail_abn_flow
+H1,short-dated OTM opening buys,surprise_scaled,flow_z,82573,0.005702,0.003781,0.131492,retail,retail_sotm_flow
+H1,short-dated OTM opening buys,surprise_scaled,flow_z:ki_z,82573,0.003249,0.003326,0.328692,retail,retail_sotm_flow
+H1,short-dated OTM opening buys,surprise_scaled,flow_z:attn_z,82573,0.002909,0.004231,0.491715,retail,retail_sotm_flow
+H1,excluding pharma & biotech,surprise_scaled,flow_z,85700,-0.007714,0.003738,0.039017,retail,retail_net_put
+H1,excluding pharma & biotech,surprise_scaled,flow_z:ki_z,85700,-0.002046,0.003375,0.544237,retail,retail_net_put
+H1,excluding pharma & biotech,surprise_scaled,flow_z:attn_z,85700,0.000975,0.005295,0.853960,retail,retail_net_put
+comparison,professional flow,surprise_scaled,flow_z,31047,-0.008000,0.003925,0.041544,procust,procust_net_put
+comparison,professional flow,surprise_scaled,flow_z:ki_z,31047,-0.003311,0.004053,0.414051,procust,procust_net_put
+comparison,professional flow,surprise_scaled,flow_z:attn_z,31047,-0.007267,0.004603,0.114405,procust,procust_net_put
+H3,"biotech, size-controlled",event_ratio,biotech,140287,-0.472107,0.029849,0.000000,,
+H3,"biotech, size-controlled",abs_car,biotech,140650,-0.001166,0.001320,0.376967,,
+H3,"biotech, size-controlled",atm_iv_change,biotech,58347,0.013892,0.004745,0.003416,,
+H3,"biotech, size-controlled",atm_iv_change_rel,biotech,58347,0.048207,0.005191,0.000000,,
+exploratory,retail flow x energy_industrials,car01,flow_z,94119,-0.000958,0.000384,0.012474,retail,
+exploratory,retail flow x energy_industrials,car01,flow_z:energy_industrials,94119,0.000763,0.000678,0.260494,retail,
+exploratory,retail flow x energy_industrials,surprise_scaled,flow_z,93909,-0.007597,0.004052,0.060791,retail,
+exploratory,retail flow x energy_industrials,surprise_scaled,flow_z:energy_industrials,93909,0.009218,0.006694,0.168474,retail,
+exploratory,retail flow x biotech,car01,flow_z,94119,-0.000828,0.000333,0.012807,retail,
+exploratory,retail flow x biotech,car01,flow_z:biotech,94119,0.001340,0.001322,0.310468,retail,
+exploratory,retail flow x biotech,surprise_scaled,flow_z,93909,-0.006688,0.003534,0.058456,retail,
+exploratory,retail flow x biotech,surprise_scaled,flow_z:biotech,93909,0.025867,0.010455,0.013358,retail,
+exploratory,procust flow x energy_industrials,car01,flow_z,31181,-0.000439,0.000670,0.512910,procust,
+exploratory,procust flow x energy_industrials,car01,flow_z:energy_industrials,31181,0.000775,0.000997,0.436969,procust,
+exploratory,procust flow x energy_industrials,surprise_scaled,flow_z,31157,-0.010918,0.004890,0.025559,procust,
+exploratory,procust flow x energy_industrials,surprise_scaled,flow_z:energy_industrials,31157,0.008528,0.008396,0.309775,procust,
+exploratory,procust flow x biotech,car01,flow_z,31181,-0.000345,0.000534,0.518528,procust,
+exploratory,procust flow x biotech,car01,flow_z:biotech,31181,0.002771,0.002383,0.244863,procust,
+exploratory,procust flow x biotech,surprise_scaled,flow_z,31157,-0.007046,0.003977,0.076440,procust,
+exploratory,procust flow x biotech,surprise_scaled,flow_z:biotech,31157,-0.030891,0.018045,0.086924,procust,
+descriptive,"tech, size-controlled",retail_share,tech,94268,-0.001276,0.001122,0.255402,,
+descriptive,"tech, + attention",retail_share,tech,94268,-0.001166,0.001126,0.300052,,
+descriptive,"tech, + attention",retail_share,abn_vol,94268,-0.001409,0.000699,0.043726,,
+descriptive,"tech, size-controlled",retail_otm_share,tech,77217,0.028721,0.003777,0.000000,,
+descriptive,"tech, + attention",retail_otm_share,tech,77217,0.027440,0.003770,0.000000,,
+descriptive,"tech, + attention",retail_otm_share,abn_vol,77217,0.017326,0.003355,0.000000,,
+descriptive,"tech, size-controlled",retail_short_share,tech,77217,0.022047,0.008410,0.008755,,
+descriptive,"tech, + attention",retail_short_share,tech,77217,0.020825,0.008404,0.013211,,
+descriptive,"tech, + attention",retail_short_share,abn_vol,77217,0.016523,0.004419,0.000185,,
+descriptive,"tech, size-controlled",retail_ret_mid,tech,73946,-0.012827,0.008997,0.153956,,
+descriptive,"tech, + attention",retail_ret_mid,tech,73946,-0.012470,0.009039,0.167726,,
+descriptive,"tech, + attention",retail_ret_mid,abn_vol,73946,-0.005027,0.008477,0.553151,,
+descriptive,"tech, size-controlled",retail_ret_half,tech,73946,0.014172,0.007739,0.067068,,
+descriptive,"tech, + attention",retail_ret_half,tech,73946,0.011590,0.007742,0.134378,,
+descriptive,"tech, + attention",retail_ret_half,abn_vol,73946,0.036376,0.007061,0.000000,,
