@@ -99,6 +99,8 @@ workbooks/
                                      Greek decomposition; spans both samples
   B5_sector_analysis.ipynb           Knowledge intensity and informed retail flow
                                      by industry; hypotheses stated before results
+  B6_information_environment.ipynb   Dispersion, coverage and informed retail flow;
+                                     hypotheses stated before results
   C1_results.ipynb                   Regenerates reported tables and figures (base)
 src/
   paths.py                 Single source of truth for every path used project-wide
@@ -133,6 +135,8 @@ src/
     option_market_results.py      Writes Tests 1-3 tables (7-11) and figures -> results/
     sector_analysis.py            Sectors, knowledge intensity, and the B5 hypothesis
                                   tests; writes tables 12-13 -> results/
+    information_environment.py    Flow x dispersion / coverage / earnings-volatility
+                                  tests (B6); writes table 14 -> results/
     check_moneyness_coverage.py   Spot-price coverage of the event sample
     check_delisting_exposure.py   Survivorship exposure in the ticker universe
     scope_spot_requirements.py    Sizes the spot-price requirement before fetching
@@ -386,6 +390,14 @@ earnings are a minor event for pharma and biotech, whose largest news is
 regulatory. The data identify informed trading, not insider trading. An
 earlier set of three hypotheses was committed first and then revised, still
 before any result was seen; the git history records both.
+
+**Information environment (B6).** Hypotheses stated before any result was
+seen: retail option flow is more informative about announcements when
+analyst dispersion is high (the primary test, linear and top-quartile), when
+analyst coverage is thin, and when prior earnings volatility is high. Because
+dispersion is strongly correlated with firm size, every specification
+includes a flow × size interaction as well as flow × attention; without it,
+a dispersion interaction could simply reflect small firms.
 
 **Known limitations.** Roughly 40% of firm-events have no same-day CBOE
 options activity, concentrated among smaller and less liquid names. About 36%

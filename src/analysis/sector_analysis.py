@@ -284,8 +284,11 @@ def build_sector_panel(panel: pl.DataFrame, contracts: pl.DataFrame | None = Non
     ev = ev.join(_attention_and_volatility(ev), on=KEY, how="left")
     ev = ev.with_columns(
         pl.col("car01").abs().alias("abs_car"),
-        (pl.col("car01").abs() / (pl.col("pre_sd") * np.sqrt(2))).alias("event_ratio"),
-        (pl.col("retail_vol") / (pl.col("retail_vol") + pl.col("procust_vol"))).alias("retail_share"),
+        pl.when(pl.col("pre_sd") > 0).then(pl.col("car01").abs() / (pl.col("pre_sd") * np.sqrt(2)))
+        .otherwise(None).alias("event_ratio"),
+        pl.when((pl.col("retail_vol") + pl.col("procust_vol")) > 0)
+        .then(pl.col("retail_vol") / (pl.col("retail_vol") + pl.col("procust_vol")))
+        .otherwise(None).alias("retail_share"),
     )
     if contracts is not None:
         ev = ev.join(_option_measures(contracts), on=KEY, how="left")
@@ -320,8 +323,13 @@ def _fit(df: pl.DataFrame, y: str, terms: list[str], continuous: list[str]):
     """OLS of y on terms + year-quarter FE, two-way clustered (firm, date).
     y and the listed continuous regressors are winsorised at 1/99."""
     import statsmodels.formula.api as smf
-    cols = list(dict.fromkeys(["PERMNO", "day0", "yq", y] + [t for t in terms if ":" not in t] + continuous))
+    parts = [v for t in terms for v in t.split(":")]      # interaction terms contribute each component
+    cols = list(dict.fromkeys(["PERMNO", "day0", "yq", y] + parts + continuous))
     d = df.select(cols).drop_nulls().to_pandas()
+    # Polars keeps NaN (it is a number, not a null) and statsmodels would drop
+    # those rows itself, leaving the cluster labels longer than the data.
+    # Drop NaN and infinities here so every array has the same rows.
+    d = d.replace([np.inf, -np.inf], np.nan).dropna()
     if len(d) < 100 or d[y].nunique() <= 1:
         return None, len(d)          # too few events, or an outcome with no variation
     d[y] = _winsorise(d[y])
