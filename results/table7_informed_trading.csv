@@ -1,0 +1,17 @@
+dv,flow,sample,era,n,b_retail,se_retail,p_retail,b_procust,se_procust,p_procust
+car01,net_put,both,pooled,30901,0.000107,0.000525,0.838316,-0.000255,0.000530,0.631032
+car01,net_put,both,pre_covid,9333,-0.000338,0.000875,0.699284,0.000035,0.000871,0.967880
+car01,net_put,both,covid,6036,-0.000386,0.000932,0.678424,0.000425,0.001038,0.682047
+car01,net_put,both,post_covid,14025,0.000748,0.000846,0.376500,-0.000539,0.000848,0.525455
+car01,net_put,retail,pooled,94000,-0.000722,0.000318,0.023331,,,
+car01,net_put,retail,pre_covid,34857,-0.001595,0.000438,0.000273,,,
+car01,net_put,retail,covid,19476,-0.000567,0.000602,0.346118,,,
+car01,net_put,retail,post_covid,34504,0.000178,0.000619,0.773627,,,
+surprise_scaled,net_put,both,pooled,30879,-0.005314,0.003890,0.171951,-0.010108,0.003841,0.008497
+surprise_scaled,net_put,both,pre_covid,9325,-0.010804,0.004763,0.023312,-0.006810,0.004645,0.142655
+surprise_scaled,net_put,both,covid,6030,0.003301,0.012312,0.788650,-0.007764,0.012287,0.527465
+surprise_scaled,net_put,both,post_covid,14021,-0.004321,0.006071,0.476561,-0.012804,0.006008,0.033079
+surprise_scaled,net_put,retail,pooled,93815,-0.003341,0.003122,0.284549,,,
+surprise_scaled,net_put,retail,pre_covid,34810,-0.005617,0.004102,0.170858,,,
+surprise_scaled,net_put,retail,covid,19424,-0.008023,0.009886,0.417054,,,
+surprise_scaled,net_put,retail,post_covid,34447,-0.002438,0.005234,0.641324,,,

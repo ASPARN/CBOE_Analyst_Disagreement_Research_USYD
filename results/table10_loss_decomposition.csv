@@ -1,0 +1,49 @@
+group,era,component,n,mean,se,median
+retail,pooled,direction (delta),71383,-0.039703,0.003864,-0.014487
+retail,pooled,convexity (gamma),71383,0.335348,0.004676,0.099525
+retail,pooled,IV change (vega),71383,-0.133609,0.003771,-0.171886
+retail,pooled,time decay (theta),71383,-0.121551,0.001928,-0.085430
+retail,pooled,residual,71383,-0.039074,0.002260,0.012304
+retail,pooled,total midpoint change,71383,0.001411,0.005217,-0.228055
+retail,pre_covid,direction (delta),27657,-0.051082,0.005395,-0.015017
+retail,pre_covid,convexity (gamma),27657,0.354070,0.006124,0.110888
+retail,pre_covid,IV change (vega),27657,-0.163019,0.004816,-0.192013
+retail,pre_covid,time decay (theta),27657,-0.114817,0.002617,-0.081485
+retail,pre_covid,residual,27657,-0.038022,0.003843,0.016004
+retail,pre_covid,total midpoint change,27657,-0.012870,0.007757,-0.235000
+retail,covid,direction (delta),15920,-0.019952,0.008932,-0.012540
+retail,covid,convexity (gamma),15920,0.245458,0.007262,0.068560
+retail,covid,IV change (vega),15920,-0.115515,0.006872,-0.142020
+retail,covid,time decay (theta),15920,-0.118564,0.004142,-0.082361
+retail,covid,residual,15920,-0.022184,0.003511,0.009334
+retail,covid,total midpoint change,15920,-0.030757,0.010026,-0.210526
+retail,post_covid,direction (delta),24007,-0.038106,0.006450,-0.014841
+retail,post_covid,convexity (gamma),24007,0.380811,0.007923,0.116757
+retail,post_covid,IV change (vega),24007,-0.126629,0.006045,-0.183918
+retail,post_covid,time decay (theta),24007,-0.130079,0.003309,-0.092041
+retail,post_covid,residual,24007,-0.049372,0.003822,0.012760
+retail,post_covid,total midpoint change,24007,0.036625,0.009641,-0.240271
+procust,pooled,direction (delta),12886,-0.038883,0.008411,-0.009170
+procust,pooled,convexity (gamma),12886,0.404031,0.009575,0.123263
+procust,pooled,IV change (vega),12886,-0.193433,0.006842,-0.202246
+procust,pooled,time decay (theta),12886,-0.183197,0.004223,-0.102112
+procust,pooled,residual,12886,-0.030534,0.005586,0.017589
+procust,pooled,total midpoint change,12886,-0.042016,0.011429,-0.293225
+procust,pre_covid,direction (delta),2826,-0.056143,0.016685,-0.008751
+procust,pre_covid,convexity (gamma),2826,0.419532,0.020113,0.132853
+procust,pre_covid,IV change (vega),2826,-0.216033,0.011367,-0.197836
+procust,pre_covid,time decay (theta),2826,-0.161984,0.006512,-0.082257
+procust,pre_covid,residual,2826,-0.023353,0.011324,0.017996
+procust,pre_covid,total midpoint change,2826,-0.037980,0.022460,-0.260836
+procust,covid,direction (delta),2924,-0.048543,0.015703,-0.022757
+procust,covid,convexity (gamma),2924,0.312858,0.014943,0.093651
+procust,covid,IV change (vega),2924,-0.143416,0.012414,-0.162924
+procust,covid,time decay (theta),2924,-0.189616,0.008385,-0.109287
+procust,covid,residual,2924,-0.008748,0.010039,0.016455
+procust,covid,total midpoint change,2924,-0.077465,0.022932,-0.281996
+procust,post_covid,direction (delta),6405,-0.029410,0.012151,-0.005080
+procust,post_covid,convexity (gamma),6405,0.439445,0.013686,0.137389
+procust,post_covid,IV change (vega),6405,-0.210296,0.009788,-0.228253
+procust,post_covid,time decay (theta),6405,-0.185821,0.005939,-0.106408
+procust,post_covid,residual,6405,-0.042940,0.008570,0.019300
+procust,post_covid,total midpoint change,6405,-0.029024,0.016359,-0.319444

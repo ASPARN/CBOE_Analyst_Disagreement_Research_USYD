@@ -18,6 +18,13 @@ to retail specifically rather than to the information event itself. Retail is
 identified using CBOE's own participant classification rather than the
 trade-size proxies used in most of this literature.
 
+Three supplementary tests (B4) ask whether retail investors take the right
+side when trading options around earnings: whether their pre-announcement
+option flow predicts the announcement return (Test 1), what the options they
+trade earn across the announcement before and after trading costs (Test 2),
+and how much of the price change comes from direction, the move's size, the
+implied-volatility crush and time decay (Test 3).
+
 University of Sydney, Discipline of Finance.
 Supervised by Professor Andrew Grant and Professor P. Joakim Westerholm.
 
@@ -68,16 +75,29 @@ data/                    All generated and licensed data (gitignored)
   cboe_daily_retail_ext/            extension
   cboe_daily_moneyness/             base (build_moneyness.py)
   cboe_daily_moneyness_ext/         extension
+  cboe_daily_flow/                  base signed option flow (build_daily_flow.py)
+  cboe_daily_flow_ext/              extension
   ibes_quarterly_report/            IBES export + dispersion_events(_ext).parquet
   crsp/                             CRSP export + crsp_daily(_ext).parquet
     ext_source/                     new CRSP CSV isolated for staged ingestion
+    returns/                        CRSP daily returns, CRSP market index, and the
+                                    constructed market return (build_market_return.py)
+  optionmetrics/                    OptionMetrics extract (pull_optionmetrics.py) and
+                                    the contract-level option panel (Tests 2-3)
 results/                 Generated tables (CSV) and figures (PNG)
-notebooks/
+workbooks/
   A1_data_pipeline_setup.ipynb       Builds base sample, in dependency order
   A2_extended_build.ipynb            Builds extension alongside base (*_ext files)
+  A3_option_data_build.ipynb         Builds inputs for the option-market tests
+                                     (WRDS pulls, signed flow, market return,
+                                     OptionMetrics, contract panel); spans both samples
   B1_core_analysis.ipynb             Base: event windows, DiD, firm-size robustness
   B2_period_and_measurement.ipynb    Base: period analysis, 2015 break, earnings vol
   B3_covid_era_analysis.ipynb        Post-COVID era comparison, spans both samples
+  B4_option_market_tests.ipynb       Tests 1-3: informed flow, option returns,
+                                     Greek decomposition; spans both samples
+  B5_sector_analysis.ipynb           Tests 1-3 by industry: three pre-stated
+                                     hypotheses (tech, biotech, energy/industrials)
   C1_results.ipynb                   Regenerates reported tables and figures (base)
 src/
   paths.py                 Single source of truth for every path used project-wide
@@ -91,6 +111,10 @@ src/
     ingest_crsp.py             CRSP daily stock file -> typed Parquet
     build_moneyness.py         Joins spot prices; classifies OTM/ITM/ATM
                                (takes crsp_path for base-vs-ext routing)
+    build_daily_flow.py        Signed daily flow: call/put x open/close x buy/sell
+    build_market_return.py     Constructed value-weighted market return, validated
+                               against CRSP vwretd
+    pull_optionmetrics.py      OptionMetrics IvyDB US extract via the WRDS library
   analysis/
     event_window_profile.py       Event windows, DiD, dispersion regressions,
                                    era splits, balanced panels, sample switch
@@ -101,6 +125,12 @@ src/
     analyse_order_size.py         Trade size around the 2015 rule changes
     covid_era_comparison.py       Three-era DiD, size-controlled, era levels
     covid_era_figures.py          Era coefficient and levels figures
+    informed_trading.py           Test 1: does pre-announcement flow predict CAR/SUE?
+    option_returns.py             Test 2: option holding returns, with trading costs
+    option_decomposition.py       Test 3: delta/gamma/vega/theta decomposition
+    option_market_results.py      Writes Tests 1-3 tables (7-11) and figures -> results/
+    sector_analysis.py            Sector assignment (NAICS) and the H1-H3 sector tests;
+                                  writes tables 12-13 -> results/
     check_moneyness_coverage.py   Spot-price coverage of the event sample
     check_delisting_exposure.py   Survivorship exposure in the ticker universe
     scope_spot_requirements.py    Sizes the spot-price requirement before fetching
@@ -115,8 +145,8 @@ requirements.txt
 
 This repo contains no data. CBOE, IBES and CRSP are licensed commercial
 datasets, and the raw CBOE archive alone is several GB — well over GitHub's
-file size limits. All three are available via supervisor access (CBOE and
-IBES) and WRDS (CRSP).
+file size limits. CBOE and IBES are available via supervisor access; CRSP
+and OptionMetrics IvyDB US via WRDS.
 
 1. Install dependencies:
    ```
@@ -128,6 +158,10 @@ IBES) and WRDS (CRSP).
    (one file covers 2011–2026)
 4. Place the base CRSP Daily Stock File export in `data/crsp/`; for the
    extension, place the 2022–2025 pull in `data/crsp/ext_source/`
+5. For the option-market tests only: a WRDS account with access to CRSP and
+   OptionMetrics IvyDB US, and the `wrds` package (`pip install wrds`). A3
+   pulls the CRSP returns, the CRSP market index and the OptionMetrics extract
+   directly, so no manual download is needed.
 
 CRSP was requested from WRDS as **Annual Update → Stock Version 2 (CIZ) →
 Stock Daily Security Data**, with identifiers (PERMNO, Ticker, CUSIP),
@@ -147,6 +181,11 @@ headline results. Then run B1, B2 and C1, each from a clean kernel.
 `A2_extended_build.ipynb` from a clean kernel — it writes every `*_ext`
 counterpart without touching any base file. Then run B3 for the era analysis.
 
+**Option-market tests (Tests 1–3):** after A1 and A2, run
+`A3_option_data_build.ipynb`. It prompts for a WRDS login, and the
+OptionMetrics pull takes roughly two hours but saves every chunk as it
+arrives, so an interrupted run resumes where it stopped. Then run B4.
+
 **Changing a pipeline script requires re-running its step.** The analysis
 notebooks read Parquet files, not code — editing a script has no effect until
 the corresponding rebuild is executed, and each step skips itself when its
@@ -163,7 +202,11 @@ python src/pipeline/build_dispersion_events.py
 python src/pipeline/build_daily_retail_activity.py
 python src/pipeline/ingest_crsp.py
 python src/pipeline/build_moneyness.py
+python src/pipeline/build_daily_flow.py
+python src/pipeline/build_market_return.py
 ```
+
+`pull_optionmetrics.py` needs a WRDS connection and is run from A3.
 
 ## Working with the two samples
 
@@ -179,12 +222,17 @@ base afterwards, so a clean top-to-bottom run of any notebook is always safe.
 The safe habit for mixed sessions is: restart the kernel before running a
 notebook top to bottom, so the switch starts at its `base` default.
 
+The option-market modules (`informed_trading`, `option_returns`,
+`option_decomposition`) do not use the switch: they read the base and
+extended files together and label each event with its era.
+
 ## Reproducing the results
 
 ```
 python src/analysis/verify_results.py
 python src/analysis/build_results_tables.py
 python src/analysis/build_results_figures.py
+python src/analysis/option_market_results.py
 ```
 
 `verify_results.py` recomputes seventeen headline numbers from the current
@@ -195,7 +243,9 @@ It does not currently have an extended equivalent — the base-sample numbers
 are the calibration.
 
 Tables and figures land in `results/` and `results/figures/`. Nothing reported
-in the thesis is copied from notebook output.
+in the thesis is copied from notebook output. `option_market_results.py`
+writes tables 7–11 and the five option-market figures for Tests 1–3; it needs
+the A3 outputs and is also run as the last step of B4.
 
 Both builders default to the 2016-onward primary sample (see below). Pass
 `date_from=None` to reproduce pooled estimates.
@@ -291,6 +341,39 @@ best framed as a *post-boom* period rather than a *COVID effect* — too much
 changed at once (zero-commission maturity, stimulus, meme-stock episode) to
 attribute the shift to any single cause.
 
+**Option-market tests (B4).** Day 0 is the *effective* announcement day:
+announcements at or after 16:00 ET move it to the next trading day. IBES
+times are not zero-padded (`7:00:00` alongside `16:05:00`), so they are
+parsed numerically; compared as text, every before-open announcement would
+be misread as after-close. *Test 1* regresses CAR[0,+1] on net put flow
+(buys minus sells, scaled by the group's option volume) over days −2 to −1,
+with firm-and-date clustered standard errors and year-quarter fixed effects.
+Returns are market-adjusted with a constructed value-weighted market return,
+because CRSP's legacy index ends at 2024-12-31; the constructed series
+matches `vwretd` over 2010–2024 with a correlation of 0.9998 and an average
+gap of 1.5 bp a day. Events whose flow window touches the 2022 CBOE gap are
+dropped rather than read as zero flow. *Test 2* prices every contract traded
+on day −1 at OptionMetrics bid-ask midpoints on days −1 and +1, matched by
+expiry, strike (stored ×1000 by OptionMetrics), call/put and secid; contracts
+expiring inside the window are valued at their payoff. Trading costs are
+applied as a fraction of the quoted half-spread on each trade. *Test 3*
+decomposes the midpoint price change with day −1 Greeks, in IvyDB units
+(vega per 1.00 change in implied volatility, theta per year); the
+decomposition fits with R² 0.974.
+
+**Sector analysis (B5).** Firms are assigned to eight sectors from their
+CRSP NAICS code as of each announcement date, with specific codes taking
+precedence over broad prefixes (pharma 3254 before manufacturing 32, and so
+on). Three hypotheses were stated before any sector result was seen: tech
+shows more speculative retail demand, driven by media attention (H1);
+earnings are a minor event for pharma and biotech, whose largest news is
+regulatory (H2); and flow is more informative in energy and industrials,
+whose earnings are more forecastable from public data (H3). Sector
+differences are tested directly, with sector dummies and flow × sector
+interactions in one regression, controlling for firm size and year-quarter
+fixed effects, with firm-and-date clustered standard errors. All other
+sector comparisons are descriptive.
+
 **Known limitations.** Roughly 40% of firm-events have no same-day CBOE
 options activity, concentrated among smaller and less liquid names. About 36%
 of tickers in the price-matched universe stopped trading before the sample
@@ -303,7 +386,16 @@ the independent effect of dispersion is identified off limited variation.
 Only the two customer categories carry contract-size breakdowns, so a full
 small-trade proxy across all participant types cannot be reconstructed from
 these data. Media attention, named as a control in the research proposal, has
-no available data source and is not included.
+no direct data source; abnormal pre-announcement trading volume serves as a
+proxy. For the option-market tests: OptionMetrics coverage ends at
+2025-08-29, so Tests 2 and 3 end there while Test 1 runs to December 2025.
+The Greek decomposition covers about 69% of retail buy volume, excluding
+contracts that expired inside the window and contracts without an implied
+volatility. Each group's execution prices are not observed, so trading costs
+are applied as the same fraction of the quoted spread to both groups, which
+probably overstates professionals' costs. CBOE's participant data are
+aggregate, so changes over time cannot separate individual traders learning
+from a change in who is trading.
 
 ## Notes
 
@@ -312,6 +404,10 @@ no available data source and is not included.
 - The base CBOE dataset runs from 2011-01-03 through 2022-05-16; the
   extension runs from 2022-08-01 through 2026-05-29, with the ~11-week gap
   a genuine feature of the source exports.
+- The OptionMetrics extract is an annual update ending 2025-08-29. After a
+  later update, raise `date_to` in `run_optionmetrics_pull` and delete the
+  `opprcd_<year>` and `secprd_<year>` folders for the affected years first,
+  since saved chunks are numbered within each year.
 - `extract_prior_outputs.py` captures every number a notebook reports, so two
   runs can be diffed mechanically. `reference_before_clean_run.json` holds the
   values from before the notebooks were restructured.
