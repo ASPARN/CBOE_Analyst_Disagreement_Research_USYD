@@ -84,6 +84,7 @@ data/                    All generated and licensed data (gitignored)
                                     constructed market return (build_market_return.py)
   optionmetrics/                    OptionMetrics extract (pull_optionmetrics.py) and
                                     the contract-level option panel (Tests 2-3)
+  external/oews/                    BLS OEWS industry file and derived STEM shares (B5)
 results/                 Generated tables (CSV) and figures (PNG)
 workbooks/
   A1_data_pipeline_setup.ipynb       Builds base sample, in dependency order
@@ -96,8 +97,8 @@ workbooks/
   B3_covid_era_analysis.ipynb        Post-COVID era comparison, spans both samples
   B4_option_market_tests.ipynb       Tests 1-3: informed flow, option returns,
                                      Greek decomposition; spans both samples
-  B5_sector_analysis.ipynb           Tests 1-3 by industry: three pre-stated
-                                     hypotheses (tech, biotech, energy/industrials)
+  B5_sector_analysis.ipynb           Knowledge intensity and informed retail flow
+                                     by industry; hypotheses stated before results
   C1_results.ipynb                   Regenerates reported tables and figures (base)
 src/
   paths.py                 Single source of truth for every path used project-wide
@@ -115,6 +116,7 @@ src/
     build_market_return.py     Constructed value-weighted market return, validated
                                against CRSP vwretd
     pull_optionmetrics.py      OptionMetrics IvyDB US extract via the WRDS library
+    build_knowledge_intensity.py  Industry STEM employment shares from BLS OEWS
   analysis/
     event_window_profile.py       Event windows, DiD, dispersion regressions,
                                    era splits, balanced panels, sample switch
@@ -129,8 +131,8 @@ src/
     option_returns.py             Test 2: option holding returns, with trading costs
     option_decomposition.py       Test 3: delta/gamma/vega/theta decomposition
     option_market_results.py      Writes Tests 1-3 tables (7-11) and figures -> results/
-    sector_analysis.py            Sector assignment (NAICS) and the H1-H3 sector tests;
-                                  writes tables 12-13 -> results/
+    sector_analysis.py            Sectors, knowledge intensity, and the B5 hypothesis
+                                  tests; writes tables 12-13 -> results/
     check_moneyness_coverage.py   Spot-price coverage of the event sample
     check_delisting_exposure.py   Survivorship exposure in the ticker universe
     scope_spot_requirements.py    Sizes the spot-price requirement before fetching
@@ -162,6 +164,10 @@ and OptionMetrics IvyDB US via WRDS.
    OptionMetrics IvyDB US, and the `wrds` package (`pip install wrds`). A3
    pulls the CRSP returns, the CRSP market index and the OptionMetrics extract
    directly, so no manual download is needed.
+6. For the sector analysis only: the BLS OEWS national industry-specific
+   estimates (a public download from https://www.bls.gov/oes/tables.htm, May
+   2024 or later), with the zip extracted into `data/external/oews/`. The
+   national 4-digit, 3-digit and sector files are used; the rest is ignored.
 
 CRSP was requested from WRDS as **Annual Update → Stock Version 2 (CIZ) →
 Stock Daily Security Data**, with identifiers (PERMNO, Ticker, CUSIP),
@@ -361,18 +367,25 @@ decomposes the midpoint price change with day −1 Greeks, in IvyDB units
 (vega per 1.00 change in implied volatility, theta per year); the
 decomposition fits with R² 0.974.
 
-**Sector analysis (B5).** Firms are assigned to eight sectors from their
-CRSP NAICS code as of each announcement date, with specific codes taking
-precedence over broad prefixes (pharma 3254 before manufacturing 32, and so
-on). Three hypotheses were stated before any sector result was seen: tech
-shows more speculative retail demand, driven by media attention (H1);
+**Sector analysis (B5).** The primary hypothesis, stated before any sector
+result was seen, is that retail option flow is more informative about
+earnings announcements in knowledge-intensive industries, whose employees and
+others with industry expertise understand announcements better. Knowledge
+intensity is each industry's STEM employment share from the BLS OEWS
+national industry-specific estimates (2022 NAICS), matched to firms at the
+4-digit NAICS level where available, with the main 2017-to-2022 NAICS changes
+translated first. The test is a flow × knowledge-intensity interaction on
+announcement returns, estimated alongside a flow × attention interaction,
+because media attention brings in uninformed traders who dilute any
+informed signal (the secondary hypothesis). Variants use low-attention
+events, flow relative to each firm's own previous events, and short-dated
+out-of-the-money opening buys, and exclude pharma and biotech; a tail test
+asks whether the most extreme flow calls the direction of the move more
+often in knowledge-intensive industries. A retained hypothesis is that
 earnings are a minor event for pharma and biotech, whose largest news is
-regulatory (H2); and flow is more informative in energy and industrials,
-whose earnings are more forecastable from public data (H3). Sector
-differences are tested directly, with sector dummies and flow × sector
-interactions in one regression, controlling for firm size and year-quarter
-fixed effects, with firm-and-date clustered standard errors. All other
-sector comparisons are descriptive.
+regulatory. The data identify informed trading, not insider trading. An
+earlier set of three hypotheses was committed first and then revised, still
+before any result was seen; the git history records both.
 
 **Known limitations.** Roughly 40% of firm-events have no same-day CBOE
 options activity, concentrated among smaller and less liquid names. About 36%

@@ -1,43 +1,56 @@
 """
 sector_analysis.py
 ====================
-Tests 1-3 by industry, organised around three hypotheses stated BEFORE any
-sector result was seen. They are the confirmatory tests; every other sector
-comparison in this module is descriptive and should be reported as such.
+Tests 1-3 by industry, organised around hypotheses stated BEFORE any sector
+result was seen. The first version (commit "Add sector analysis (B5)") stated
+three hypotheses; they were revised to the set below, still before any
+result was seen. These are the confirmatory tests; everything else in this
+module is exploratory or descriptive and is labelled as such.
 
-H1  Technology shows more speculative retail demand, because it receives
-    the most media attention. Measures: retail share of customer option
-    volume, retail out-of-the-money share, retail short-dated (<= 7 days)
-    share, and retail's return on options bought (midpoint and half-spread).
-    Prediction: tech coefficient > 0 for demand measures, < 0 for returns.
-    Mechanism check: the tech coefficient should shrink once pre-announcement
-    attention (abnormal trading volume) is controlled for.
+H1 (primary)  Retail option flow is more informative about earnings
+    announcements in knowledge-intensive industries -- those whose workforce
+    is more technical -- because their employees and others with industry
+    expertise understand announcements better. Knowledge intensity is the
+    industry's STEM employment share (BLS OEWS; build_knowledge_intensity).
+    Prediction: in  CAR ~ flow + flow x KI + KI + flow x attention + ...
+    the flow x KI interaction is NEGATIVE (net put buying predicts lower
+    returns more strongly as KI rises), net of attention. Variants: among
+    low-attention events; with abnormal flow (relative to the firm's own
+    previous events); with short-dated OTM opening buys (the instrument
+    informed traders favour); excluding pharma & biotech. Plus a tail test:
+    do the most extreme abnormal-flow events call the direction of the move
+    more often in high-KI industries?
+    The data identify informed trading, not insider trading: CBOE records
+    that retail flow predicted the announcement, not who traded or why.
 
-H2  Earnings are a minor event for pharma & biotech, whose largest news is
-    regulatory (FDA decisions, trial readouts). Predictions: a smaller
-    announcement move relative to normal volatility, a smaller IV crush in
-    near-the-money options, and weaker information in pre-announcement flow
-    (flow x biotech interaction of the opposite sign to the flow effect).
+H2 (secondary, the confound)  Attention dilutes flow informativeness:
+    heavily covered firms attract uninformed traders whose volume masks any
+    informed signal. Prediction: flow x attention interaction POSITIVE (the
+    negative flow effect weakens as attention rises).
 
-H3  Flow is more informative in energy & industrials, whose earnings are
-    more forecastable from public data (commodity prices, input costs,
-    backlogs). Prediction: flow x energy_industrials interaction < 0 for
-    announcement returns and surprises, especially for professional flow.
+H3 (kept, reframed)  Earnings are a minor event for pharma & biotech, whose
+    largest news is regulatory. Prediction: a smaller announcement move
+    relative to normal volatility, a milder near-the-money IV crush. This can
+    coexist with H1: biotech's informed trading may sit around regulatory
+    events an earnings study cannot see, which is why H1 is also run
+    excluding biotech.
+
+Exploratory  flow x energy & industrials (the original H3), and tech's
+    speculative demand (the original H1), reported as descriptive.
 
 Design
 ------
-- Sector differences are tested DIRECTLY -- dummies and flow x sector
-  interactions in one regression -- never by comparing separate per-sector
-  regressions (a significant result in one group and an insignificant one in
-  another does not show that the two differ).
-- Every test controls for firm size (log market cap) and year-quarter fixed
-  effects; standard errors are clustered by firm and by announcement date.
-- Tests pool 2016-2025; eras are a secondary check, since small sectors
-  thin out quickly once split.
+- Sector differences are tested DIRECTLY -- interactions in one regression --
+  never by comparing separate per-sector regressions.
+- Every test controls for firm size and year-quarter fixed effects; standard
+  errors are clustered by firm and by announcement date. KI and attention
+  enter as z-scores, so an interaction reads as the change in the flow
+  effect per one-standard-deviation change in KI (or attention).
+- Tests pool 2016-2025; eras are a secondary check.
 
-Sectors (from CRSP NAICS, as of each announcement date)
--------------------------------------------------------
-Rules are applied in order, so specific codes win over broad prefixes:
+Sectors (from CRSP NAICS, as of each announcement date) are used for the
+biotech, exploratory and descriptive parts; rules are applied in order so
+specific codes win over broad prefixes:
   Pharma & biotech  3254 (pharma manufacturing), 541711 / 541714 (biotech R&D)
   Energy            211, 2121, 213111, 213112, 324, 486
   Technology        334, 5112 / 51321 (software, pre/post 2022 NAICS), 518,
@@ -47,10 +60,6 @@ Rules are applied in order, so specific codes win over broad prefixes:
   Consumer & retail 311-316, 44, 45, 71, 72
   Industrials       remaining 21, 23, 31-33, 42, 48, 49
   Other             everything else;  Unknown = no NAICS
-Borderline assignments worth knowing: e-commerce (NAICS 45/454) is consumer &
-retail, carmakers (3361) are industrials, medical instruments (3345) are
-technology, and media and telecom (512-517) are other.
-sector_check() prints the most frequent firms per sector to verify the rules.
 """
 
 from __future__ import annotations
@@ -62,12 +71,18 @@ import numpy as np
 import polars as pl
 
 sys.path.append(str(Path(__file__).parent.parent))
-from paths import CRSP_DIR, RESULTS_DIR
+from paths import CRSP_DIR, DATA_DIR, RESULTS_DIR
 from analysis.informed_trading import _calendar, _winsorise, ERAS
 from analysis.option_returns import event_option_returns
 
 RET_DIR = CRSP_DIR / "returns"
+STEM_PATH = DATA_DIR / "external" / "oews" / "stem_share.parquet"
 KEY = ["OFTIC", "ANNDATS_ACT"]
+
+# 4-digit NAICS codes that changed in the 2022 revision (information sector),
+# translated before matching firms' codes to the 2022-based OEWS industries
+NAICS_2022_CROSSWALK = {"5111": "5131", "5112": "5132", "5151": "5161", "5152": "5162",
+                        "5173": "5171", "5191": "5192"}
 
 SECTOR_RULES = [
     ("Pharma & biotech", ["3254", "541711", "541714"]),
@@ -137,6 +152,45 @@ def sector_check(sp: pl.DataFrame, top: int = 8) -> pl.DataFrame:
             .select("sector", "events", "top_firms"))
 
 
+def attach_knowledge_intensity(ev: pl.DataFrame, stem_path: Path = STEM_PATH) -> pl.DataFrame:
+    """STEM employment share of each firm's industry. Matched at the 4-digit
+    NAICS level where OEWS publishes it (after translating codes changed in
+    the 2022 revision), else 3-digit, else sector. `ki_level` records which."""
+    if not stem_path.exists():
+        print(f"  note: {stem_path.name} not found -- run build_knowledge_intensity first; KI tests skipped")
+        return ev.with_columns(pl.lit(None, dtype=pl.Float64).alias("stem_share"),
+                               pl.lit(None, dtype=pl.Int64).alias("ki_level"))
+    stem = pl.read_parquet(stem_path)
+    code = pl.col("NAICS").cast(pl.Utf8).str.strip_chars()
+    d4 = code.str.slice(0, 4).replace(NAICS_2022_CROSSWALK)
+    ev = ev.with_columns(d4.alias("_k4"), code.str.slice(0, 3).alias("_k3"), code.str.slice(0, 2).alias("_k2"))
+    for lvl in (4, 3, 2):
+        m = stem.filter(pl.col("level") == lvl).select(
+            pl.col("naics_key").alias(f"_k{lvl}"), pl.col("stem_share").alias(f"_s{lvl}"))
+        ev = ev.join(m, on=f"_k{lvl}", how="left")
+    ev = ev.with_columns(
+        pl.coalesce("_s4", "_s3", "_s2").alias("stem_share"),
+        pl.when(pl.col("_s4").is_not_null()).then(4).when(pl.col("_s3").is_not_null()).then(3)
+        .when(pl.col("_s2").is_not_null()).then(2).otherwise(None).alias("ki_level"))
+    return ev.drop("_k4", "_k3", "_k2", "_s4", "_s3", "_s2")
+
+
+def _abnormal_flow(ev: pl.DataFrame, col: str, min_prior: int = 4) -> pl.Expr:
+    """Flow relative to the firm's own PREVIOUS events: (x - mean) / sd over
+    events before this one, requiring at least `min_prior`. Only earlier
+    events enter, so no future information is used."""
+    x = pl.col(col)
+    valid = x.is_not_null().cast(pl.Float64)
+    xf = x.fill_null(0.0)
+    n_prev = (valid.cum_sum() - valid).over("PERMNO")
+    s_prev = (xf.cum_sum() - xf).over("PERMNO")
+    q_prev = ((xf ** 2).cum_sum() - xf ** 2).over("PERMNO")
+    mean = s_prev / n_prev
+    var = q_prev / n_prev - mean ** 2
+    return (pl.when((n_prev >= min_prior) & (var > 1e-12) & x.is_not_null())
+            .then((x - mean) / var.sqrt()).otherwise(None))
+
+
 # ---------------------------------------------------------------------------
 # event-level measures
 # ---------------------------------------------------------------------------
@@ -192,6 +246,15 @@ def _option_measures(contracts: pl.DataFrame) -> pl.DataFrame:
             (b * ((pl.col("exdate") - pl.col("entry_date")).dt.total_days() <= 7)).sum() / b.sum())
         .otherwise(None).alias("retail_short_share"),
     )
+    # short-dated OTM opening buys, puts minus calls, over retail's total day -1 volume:
+    # the instrument informed traders favour (maximum leverage)
+    ob = pl.col("retail_open_buy").cast(pl.Float64)
+    tot = sum(pl.col(f"retail_{a}").cast(pl.Float64) for a in ("open_buy", "close_buy", "open_sell", "close_sell"))
+    s_otm = (pl.col("moneyness") == "otm") & ((pl.col("exdate") - pl.col("entry_date")).dt.total_days() <= 14)
+    sotm = known.group_by(KEY).agg(
+        pl.when(tot.sum() > 0).then(
+            ((ob * (s_otm & (pl.col("cp_flag") == "P"))).sum() - (ob * (s_otm & (pl.col("cp_flag") == "C"))).sum())
+            / tot.sum()).otherwise(None).alias("retail_sotm_flow"))
     crush = (c.filter(~pl.col("valued_at_expiry").fill_null(True)
                       & (pl.col("impl_volatility_entry") > 0) & (pl.col("impl_volatility_exit") > 0)
                       & (pl.col("log_mny").abs() <= 0.05))
@@ -201,7 +264,7 @@ def _option_measures(contracts: pl.DataFrame) -> pl.DataFrame:
                  (pl.col("_ds") / pl.col("impl_volatility_entry")).median().alias("atm_iv_change_rel")))
     r0 = event_option_returns(c, cost_frac=0.0).select(KEY + [pl.col("retail_dw_buy").alias("retail_ret_mid")])
     r5 = event_option_returns(c, cost_frac=0.5).select(KEY + [pl.col("retail_dw_buy").alias("retail_ret_half")])
-    out = demand.join(crush, on=KEY, how="full", coalesce=True)
+    out = demand.join(crush, on=KEY, how="full", coalesce=True).join(sotm, on=KEY, how="full", coalesce=True)
     for r in (r0, r5):
         out = out.join(r.with_columns(pl.col("ANNDATS_ACT").cast(pl.Date)), on=KEY, how="full", coalesce=True)
     return out
@@ -217,6 +280,7 @@ def build_sector_panel(panel: pl.DataFrame, contracts: pl.DataFrame | None = Non
           .unique(subset=KEY, keep="first")
           .filter(pl.col("PERMNO").is_not_null()))
     ev = attach_sector(ev)
+    ev = attach_knowledge_intensity(ev)
     ev = ev.join(_attention_and_volatility(ev), on=KEY, how="left")
     ev = ev.with_columns(
         pl.col("car01").abs().alias("abs_car"),
@@ -225,6 +289,9 @@ def build_sector_panel(panel: pl.DataFrame, contracts: pl.DataFrame | None = Non
     )
     if contracts is not None:
         ev = ev.join(_option_measures(contracts), on=KEY, how="left")
+    ev = ev.sort("PERMNO", "day0").with_columns(
+        _abnormal_flow(ev, "retail_net_put").alias("retail_abn_flow"),
+        _abnormal_flow(ev, "procust_net_put").alias("procust_abn_flow"))
     ev = ev.with_columns(
         (pl.col("sector") == "Technology").cast(pl.Int8).alias("tech"),
         (pl.col("sector") == "Pharma & biotech").cast(pl.Int8).alias("biotech"),
@@ -233,6 +300,11 @@ def build_sector_panel(panel: pl.DataFrame, contracts: pl.DataFrame | None = Non
     if verbose:
         n_unknown = ev.filter(pl.col("sector") == "Unknown").height
         print(f"Sector panel: {ev.height:,} firm-events; {n_unknown:,} without a NAICS code")
+        if ev["stem_share"].drop_nulls().len():
+            lv = ev.group_by("ki_level").len().sort("ki_level", descending=True, nulls_last=True)
+            print("  knowledge intensity matched: " + ", ".join(
+                f"{n:,} at {'no match' if l is None else str(l) + '-digit' if l > 2 else 'sector level'}"
+                for l, n in lv.iter_rows()))
         print(f"  attention proxy available: {ev['abn_vol'].drop_nulls().len():,}  |  "
               f"event ratio available: {ev['event_ratio'].drop_nulls().len():,}")
         if contracts is not None:
@@ -275,7 +347,7 @@ H1_OUTCOMES = ["retail_share", "retail_otm_share", "retail_short_share", "retail
 H2_OUTCOMES = ["event_ratio", "abs_car", "atm_iv_change", "atm_iv_change_rel"]
 
 
-def test_h1_tech(sp: pl.DataFrame) -> pl.DataFrame:
+def test_speculative_demand(sp: pl.DataFrame) -> pl.DataFrame:
     """Tech dummy on each speculative-demand measure, with a size control;
     then the same sample with the attention proxy added. If attention drives
     tech's excess speculation, the tech coefficient shrinks in the second."""
@@ -284,20 +356,20 @@ def test_h1_tech(sp: pl.DataFrame) -> pl.DataFrame:
         sub = sp.drop_nulls([y, "log_mktcap", "abn_vol"])      # same sample for both fits
         m1, n1 = _fit(sub, y, ["tech", "log_mktcap"], [y, "log_mktcap"])
         m2, n2 = _fit(sub, y, ["tech", "log_mktcap", "abn_vol"], [y, "log_mktcap", "abn_vol"])
-        rows.append(_row("H1", "tech, size-controlled", y, "tech", m1, n1))
-        rows.append(_row("H1", "tech, + attention", y, "tech", m2, n2))
-        rows.append(_row("H1", "tech, + attention", y, "abn_vol", m2, n2))
+        rows.append(_row("descriptive", "tech, size-controlled", y, "tech", m1, n1))
+        rows.append(_row("descriptive", "tech, + attention", y, "tech", m2, n2))
+        rows.append(_row("descriptive", "tech, + attention", y, "abn_vol", m2, n2))
     return pl.DataFrame(rows)
 
 
-def test_h2_biotech(sp: pl.DataFrame) -> pl.DataFrame:
+def test_biotech_minor_event(sp: pl.DataFrame) -> pl.DataFrame:
     """Biotech dummy on the size of the announcement event: the move relative
     to normal volatility, the absolute move, and the near-the-money IV
     change (a smaller crush = a less negative change = a positive coefficient)."""
     rows = []
     for y in [o for o in H2_OUTCOMES if o in sp.columns]:
         m, n = _fit(sp, y, ["biotech", "log_mktcap"], [y, "log_mktcap"])
-        rows.append(_row("H2", "biotech, size-controlled", y, "biotech", m, n))
+        rows.append(_row("H3", "biotech, size-controlled", y, "biotech", m, n))
     return pl.DataFrame(rows)
 
 
@@ -307,7 +379,7 @@ def test_flow_interactions(sp: pl.DataFrame, flags=("energy_industrials", "biote
     sector?  dv ~ flow_z + flow_z:flag + flag + controls + FE, estimated
     separately for retail flow (events with retail flow) and professional
     flow (events with professional flow). The interaction is the test."""
-    hyp = {"energy_industrials": "H3", "biotech": "H2"}
+    hyp = {"energy_industrials": "exploratory", "biotech": "exploratory"}
     rows = []
     for g in groups:
         for flag in flags:
@@ -323,9 +395,80 @@ def test_flow_interactions(sp: pl.DataFrame, flags=("energy_industrials", "biote
     return pl.DataFrame(rows, infer_schema_length=None)
 
 
+def _z(s: pl.Series) -> pl.Series:
+    w = _winsorise(s.to_pandas())
+    return pl.Series(((w - w.mean()) / w.std()).to_numpy())
+
+
+def _ki_regression(sp, flow_col, dv, hyp, test, with_attention=True, restrict=None, group="retail"):
+    """dv ~ flow_z + flow_z:ki_z + ki_z [+ flow_z:attn_z + attn_z] + controls + FE."""
+    need = [flow_col, dv, "stem_share"] + CONTROLS + (["abn_vol"] if with_attention else [])
+    d = sp if restrict is None else sp.filter(restrict)
+    d = d.drop_nulls(need)
+    if d.height < 200:
+        return []
+    d = d.with_columns(_z(d[flow_col]).alias("flow_z"), _z(d["stem_share"]).alias("ki_z"))
+    terms = ["flow_z", "flow_z:ki_z", "ki_z"]
+    if with_attention:
+        d = d.with_columns(_z(d["abn_vol"]).alias("attn_z"))
+        terms += ["flow_z:attn_z", "attn_z"]
+    m, n = _fit(d, dv, terms + CONTROLS, [dv] + CONTROLS)
+    keep = ["flow_z", "flow_z:ki_z"] + (["flow_z:attn_z"] if with_attention else [])
+    return [_row(hyp, test, dv, t, m, n, group=group, flow=flow_col) for t in keep]
+
+
+def test_knowledge_informativeness(sp: pl.DataFrame, dvs=("car01", "surprise_scaled")) -> pl.DataFrame:
+    """H1 and H2. The primary specification, then the four H1 variants, for
+    retail flow; professional flow as a comparison."""
+    if sp["stem_share"].drop_nulls().len() == 0:
+        return pl.DataFrame()
+    med_attn = sp["abn_vol"].median()
+    rows = []
+    for dv in dvs:
+        rows += _ki_regression(sp, "retail_net_put", dv, "H1/H2", "primary: flow x KI, flow x attention")
+        rows += _ki_regression(sp, "retail_net_put", dv, "H1", "low-attention events", with_attention=False,
+                               restrict=pl.col("abn_vol") <= med_attn)
+        rows += _ki_regression(sp, "retail_abn_flow", dv, "H1", "abnormal flow (vs firm's past)")
+        if "retail_sotm_flow" in sp.columns:
+            rows += _ki_regression(sp, "retail_sotm_flow", dv, "H1", "short-dated OTM opening buys")
+        rows += _ki_regression(sp, "retail_net_put", dv, "H1", "excluding pharma & biotech",
+                               restrict=pl.col("sector") != "Pharma & biotech")
+        rows += _ki_regression(sp, "procust_net_put", dv, "comparison", "professional flow", group="procust")
+    return pl.DataFrame(rows, infer_schema_length=None)
+
+
+def tail_test(sp: pl.DataFrame, flow_col: str = "retail_abn_flow", tail: float = 0.02) -> pl.DataFrame:
+    """Among the events with the most extreme abnormal flow (top `tail` by
+    absolute value), how often does the flow call the direction of the
+    announcement return (net put buying -> negative CAR)? Compared between
+    high-KI industries (top tercile of STEM share) and the rest. Chance is 50%."""
+    from scipy.stats import binomtest
+    from statsmodels.stats.proportion import proportions_ztest
+    d = sp.drop_nulls([flow_col, "car01", "stem_share"]).filter(pl.col("car01") != 0)
+    if d.height < 100:
+        return pl.DataFrame()
+    cut = d[flow_col].abs().quantile(1 - tail)
+    t = d.filter(pl.col(flow_col).abs() >= cut).with_columns(
+        (pl.col("car01").sign() == -pl.col(flow_col).sign()).alias("hit"))
+    hi_cut = d["stem_share"].quantile(2 / 3)
+    rows = []
+    groups = {"high KI (top tercile)": t.filter(pl.col("stem_share") >= hi_cut),
+              "other industries": t.filter(pl.col("stem_share") < hi_cut), "all": t}
+    for label, g in groups.items():
+        k, n = int(g["hit"].sum()), g.height
+        rows.append({"group": label, "events": n, "hits": k, "hit_rate": k / n if n else None,
+                     "p_vs_50pct": binomtest(k, n, 0.5).pvalue if n else None})
+    a, b = groups["high KI (top tercile)"], groups["other industries"]
+    if a.height and b.height:
+        _, p = proportions_ztest([int(a["hit"].sum()), int(b["hit"].sum())], [a.height, b.height])
+        rows.append({"group": "difference (high KI - other)", "events": a.height + b.height, "hits": None,
+                     "hit_rate": rows[0]["hit_rate"] - rows[1]["hit_rate"], "p_vs_50pct": p})
+    return pl.DataFrame(rows).with_columns(pl.lit(flow_col).alias("flow"), pl.lit(tail).alias("tail"))
+
+
 def sector_profile(sp: pl.DataFrame) -> pl.DataFrame:
     """Descriptive: medians of the key measures by sector (not a test)."""
-    meas = [c for c in ["log_mktcap", "retail_share", "retail_otm_share", "retail_short_share",
+    meas = [c for c in ["stem_share", "log_mktcap", "retail_share", "retail_otm_share", "retail_short_share",
                         "retail_ret_mid", "retail_ret_half", "event_ratio", "atm_iv_change_rel", "abn_vol"]
             if c in sp.columns]
     return (sp.group_by("sector")
@@ -334,16 +477,22 @@ def sector_profile(sp: pl.DataFrame) -> pl.DataFrame:
 
 
 def run_sector_tests(sp: pl.DataFrame) -> pl.DataFrame:
-    return pl.concat([test_h1_tech(sp), test_h2_biotech(sp), test_flow_interactions(sp)],
-                     how="diagonal_relaxed")
+    parts = [test_knowledge_informativeness(sp), test_biotech_minor_event(sp),
+             test_flow_interactions(sp), test_speculative_demand(sp)]
+    return pl.concat([p for p in parts if p.height], how="diagonal_relaxed")
 
 
 def write_sector_results(sp: pl.DataFrame, out_dir: Path | None = None) -> dict:
     out_dir = out_dir or RESULTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     prof, tests, check = sector_profile(sp), run_sector_tests(sp), sector_check(sp)
+    tails = pl.concat([t for t in (tail_test(sp, tail=0.01), tail_test(sp, tail=0.02)) if t.height],
+                      how="diagonal_relaxed") if sp["stem_share"].drop_nulls().len() else pl.DataFrame()
     prof.write_csv(out_dir / "table12_sector_profile.csv", float_precision=6)
-    tests.write_csv(out_dir / "table13_sector_hypotheses.csv", float_precision=6)
     check.write_csv(out_dir / "table12b_sector_membership.csv")
-    print("  wrote table12_sector_profile.csv, table12b_sector_membership.csv, table13_sector_hypotheses.csv")
-    return {"profile": prof, "tests": tests, "check": check}
+    tests.write_csv(out_dir / "table13_sector_hypotheses.csv", float_precision=6)
+    if tails.height:
+        tails.write_csv(out_dir / "table13b_tail_test.csv", float_precision=6)
+    print("  wrote table12_sector_profile.csv, table12b_sector_membership.csv, table13_sector_hypotheses.csv"
+          + (", table13b_tail_test.csv" if tails.height else ""))
+    return {"profile": prof, "tests": tests, "check": check, "tails": tails}
